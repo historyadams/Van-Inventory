@@ -210,23 +210,16 @@ function InventoryTab({
               key={it.itemId}
               className="bg-white rounded-xl border border-navy-900/10 px-4 py-3 flex items-center gap-3"
             >
-              <span className="font-mono text-lg font-semibold text-navy-900 w-8 text-center tabular-nums">
-                {it.current}
-              </span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-navy-900 leading-snug">{it.name}</p>
                 <p className="text-[11px] font-mono text-navy-900/40">#{it.invCode}</p>
               </div>
               <span
                 className={`font-mono text-sm font-semibold w-12 text-right tabular-nums ${
-                  it.pendingDelta > 0
-                    ? 'text-stock-down animate-flash'
-                    : it.pendingDelta < 0
-                      ? 'text-stock-up animate-flash'
-                      : 'text-transparent'
+                  it.pendingDelta > 0 ? 'text-stock-up animate-flash' : 'text-transparent'
                 }`}
               >
-                {it.pendingDelta > 0 ? `+${it.pendingDelta}` : it.pendingDelta < 0 ? it.pendingDelta : '0'}
+                {it.pendingDelta > 0 ? `+${it.pendingDelta}` : '0'}
               </span>
             </li>
           ))}
