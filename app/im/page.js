@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 
 export default function ImPage() {
   const router = useRouter();
+  const [tab, setTab] = useState('adjust'); // 'adjust' | 'history'
   const [vans, setVans] = useState([]);
   const [vanId, setVanId] = useState('');
   const [items, setItems] = useState([]);
@@ -34,8 +35,8 @@ export default function ImPage() {
   }, []);
 
   useEffect(() => {
-    if (vanId) loadItems(vanId);
-  }, [vanId, loadItems]);
+    if (vanId && tab === 'adjust') loadItems(vanId);
+  }, [vanId, tab, loadItems]);
 
   function adjust(itemId, dir) {
     setSessionDeltas((prev) => ({
@@ -73,7 +74,11 @@ export default function ImPage() {
   }
 
   async function handleLogout() {
-    await fetch('/api/logout', { method: 'POST' });
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'im' }),
+    });
     router.push('/');
     router.refresh();
   }
@@ -114,8 +119,63 @@ export default function ImPage() {
             ))}
           </select>
         </div>
+        <div className="max-w-2xl mx-auto px-5 flex gap-1 text-sm">
+          <ImTabButton active={tab === 'adjust'} onClick={() => setTab('adjust')}>
+            Adjust Stock
+          </ImTabButton>
+          <ImTabButton active={tab === 'history'} onClick={() => setTab('history')}>
+            History
+          </ImTabButton>
+        </div>
       </header>
 
+      {tab === 'adjust' ? (
+        <AdjustTab
+          query={query}
+          setQuery={setQuery}
+          loading={loading}
+          filteredItems={filteredItems}
+          sessionDeltas={sessionDeltas}
+          adjust={adjust}
+          toast={toast}
+          submitting={submitting}
+          changeCount={changeCount}
+          handleSubmit={handleSubmit}
+        />
+      ) : (
+        <HistoryTab vanId={vanId} />
+      )}
+    </main>
+  );
+}
+
+function ImTabButton({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-2.5 border-b-2 transition ${
+        active ? 'border-ember-600 text-white' : 'border-transparent text-white/50 hover:text-white/80'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function AdjustTab({
+  query,
+  setQuery,
+  loading,
+  filteredItems,
+  sessionDeltas,
+  adjust,
+  toast,
+  submitting,
+  changeCount,
+  handleSubmit,
+}) {
+  return (
+    <>
       <div className="max-w-2xl mx-auto px-5 pt-5">
         <input
           type="text"
@@ -186,7 +246,7 @@ export default function ImPage() {
           </button>
         </div>
       </div>
-    </main>
+    </>
   );
 }
 
@@ -199,5 +259,129 @@ function ArrowIcon({ dir }) {
         <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       )}
     </svg>
+  );
+}
+
+function toDateInputValue(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function HistoryTab({ vanId }) {
+  const today = useMemo(() => new Date(), []);
+  const weekAgo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d;
+  }, []);
+
+  const [start, setStart] = useState(toDateInputValue(weekAgo));
+  const [end, setEnd] = useState(toDateInputValue(today));
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
+
+  const loadHistory = useCallback(async () => {
+    if (!vanId) return;
+    setLoading(true);
+    setError('');
+    const res = await fetch(`/api/inventory/history?van=${vanId}&start=${start}&end=${end}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setItems(data.items || []);
+    } else {
+      setError(data.error || 'Something went wrong loading history.');
+    }
+    setLoading(false);
+  }, [vanId, start, end]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const filteredItems = useMemo(() => {
+    if (!query.trim()) return items;
+    const q = query.trim().toLowerCase();
+    return items.filter((it) => it.name.toLowerCase().includes(q));
+  }, [items, query]);
+
+  return (
+    <div className="max-w-2xl mx-auto px-5 pt-5 pb-10">
+      <div className="bg-white rounded-xl border border-navy-900/10 p-4 mb-4 flex gap-3">
+        <label className="flex-1 text-xs text-navy-900/60">
+          Start
+          <input
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            max={end}
+            className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          />
+        </label>
+        <label className="flex-1 text-xs text-navy-900/60">
+          End
+          <input
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            min={start}
+            max={toDateInputValue(today)}
+            className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          />
+        </label>
+      </div>
+
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Filter items..."
+        className="w-full rounded-lg border border-navy-900/15 bg-white px-4 py-2.5 text-sm mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+      />
+
+      {loading ? (
+        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+      ) : error ? (
+        <p className="text-center text-red-600 py-10 text-sm">{error}</p>
+      ) : (
+        <ul className="space-y-2">
+          {filteredItems.map((it) => (
+            <li
+              key={it.itemId}
+              className="bg-white rounded-xl border border-navy-900/10 px-4 py-3"
+            >
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-lg font-semibold text-navy-900 w-8 text-center tabular-nums">
+                  {it.currentQty}
+                </span>
+                <span className="flex-1 text-sm text-navy-900 leading-snug">{it.name}</span>
+                <span className="text-[11px] font-mono text-navy-900/40">#{it.invCode}</span>
+              </div>
+              {it.history.length > 0 && (
+                <ul className="mt-2 pt-2 border-t border-navy-900/5 space-y-1">
+                  {it.history.map((h, i) => (
+                    <li key={i} className="flex items-center justify-between text-xs">
+                      <span className="text-navy-900/40 font-mono">
+                        {new Date(h.completedAt).toLocaleString()}
+                      </span>
+                      <span
+                        className={`font-mono font-semibold ${
+                          h.delta > 0 ? 'text-stock-up' : 'text-stock-down'
+                        }`}
+                      >
+                        {h.delta > 0 ? `+${h.delta}` : h.delta}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+          {filteredItems.length === 0 && (
+            <p className="text-center text-navy-900/40 py-10 text-sm">No items match.</p>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
