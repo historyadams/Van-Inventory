@@ -1,17 +1,25 @@
 import { NextResponse } from 'next/server';
-import { verifyRoleCookie, COOKIE_NAME } from './lib/auth';
+import { verifyRoleCookie, IM_COOKIE_NAME, SC_COOKIE_NAME } from './lib/auth';
 
 export async function middleware(req) {
   const { pathname } = req.nextUrl;
-  const cookieValue = req.cookies.get(COOKIE_NAME)?.value;
-  const role = await verifyRoleCookie(cookieValue);
 
-  if (pathname.startsWith('/im') && role !== 'im') {
-    return NextResponse.redirect(new URL('/login/im', req.url));
+  if (pathname.startsWith('/im')) {
+    const imValue = req.cookies.get(IM_COOKIE_NAME)?.value;
+    const imRole = await verifyRoleCookie(imValue);
+    if (imRole !== 'im') {
+      return NextResponse.redirect(new URL('/login/im', req.url));
+    }
   }
-  if (pathname.startsWith('/sc') && role !== 'sc') {
-    return NextResponse.redirect(new URL('/login/sc', req.url));
+
+  if (pathname.startsWith('/sc')) {
+    const scValue = req.cookies.get(SC_COOKIE_NAME)?.value;
+    const scRole = await verifyRoleCookie(scValue);
+    if (scRole !== 'sc') {
+      return NextResponse.redirect(new URL('/login/sc', req.url));
+    }
   }
+
   return NextResponse.next();
 }
 
