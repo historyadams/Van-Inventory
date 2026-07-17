@@ -1,5 +1,6 @@
 import { getScRole, sql } from '../../../../lib/db';
 import { parseDateRange } from '../../../../lib/reportDates';
+import { reportLocationLabel } from '../../../../lib/reportLocationLabels';
 
 function csvEscape(value) {
   const str = String(value ?? '');
@@ -51,7 +52,7 @@ export async function GET(req) {
   for (const r of rows) {
     lines.push(
       [
-        csvEscape(r.location_name),
+        csvEscape(reportLocationLabel(r.prefix)),
         csvEscape(`${r.prefix}${r.suffix}`),
         csvEscape(r.item_name),
         csvEscape(r.inv_code),
