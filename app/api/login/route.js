@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { signRole, COOKIE_NAME } from '../../../lib/auth';
+import { signRole, IM_COOKIE_NAME, SC_COOKIE_NAME } from '../../../lib/auth';
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
@@ -19,8 +19,9 @@ export async function POST(req) {
   }
 
   const token = await signRole(role);
+  const cookieName = role === 'im' ? IM_COOKIE_NAME : SC_COOKIE_NAME;
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, token, {
+  res.cookies.set(cookieName, token, {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
