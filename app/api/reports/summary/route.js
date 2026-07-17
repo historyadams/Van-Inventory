@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getScRole, sql } from '../../../../lib/db';
 import { parseDateRange } from '../../../../lib/reportDates';
+import { reportLocationLabel } from '../../../../lib/reportLocationLabels';
 
 export async function GET(req) {
   const role = await getScRole();
@@ -40,7 +41,7 @@ export async function GET(req) {
       vanMap.set(r.van_id, {
         vanId: r.van_id,
         code: `${r.prefix}${r.suffix}`,
-        locationName: r.location_name,
+        locationName: reportLocationLabel(r.prefix),
         moves: [],
       });
     }
