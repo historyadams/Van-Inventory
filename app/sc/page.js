@@ -13,7 +13,7 @@ const POLL_MS = 4000;
 
 export default function ScPage() {
   const router = useRouter();
-  const [tab, setTab] = useState('inventory'); // 'inventory' | 'locations'
+  const [tab, setTab] = useState('inventory'); // 'inventory' | 'locations' | 'items'
   const [vans, setVans] = useState([]);
   const [vanId, setVanId] = useState('');
   const [items, setItems] = useState([]);
@@ -56,7 +56,11 @@ export default function ScPage() {
   }, [vanId, tab, loadItems]);
 
   async function handleLogout() {
-    await fetch('/api/logout', { method: 'POST' });
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'sc' }),
+    });
     router.push('/');
     router.refresh();
   }
@@ -109,6 +113,9 @@ export default function ScPage() {
           <TabButton active={tab === 'locations'} onClick={() => setTab('locations')}>
             Van Locations
           </TabButton>
+          <TabButton active={tab === 'items'} onClick={() => setTab('items')}>
+            Manage Items
+          </TabButton>
         </div>
       </header>
 
@@ -125,8 +132,10 @@ export default function ScPage() {
           lastSynced={lastSynced}
           onCompleteClick={() => setConfirmOpen(true)}
         />
-      ) : (
+      ) : tab === 'locations' ? (
         <LocationsTab vans={vans} onChanged={refreshVans} />
+      ) : (
+        <ItemsTab />
       )}
 
       {toast && (
@@ -351,6 +360,190 @@ function LocationsTab({ vans, onChanged }) {
       {toast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
           {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ItemsTab() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [name, setName] = useState('');
+  const [invCode, setInvCode] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch('/api/items');
+    const data = await res.json();
+    setItems(data.items || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadItems();
+  }, [loadItems]);
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    const res = await fetch('/api/items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, invCode }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+
+    if (res.ok) {
+      setName('');
+      setInvCode('');
+      setToast(`Added "${name.trim()}" to every van.`);
+      setTimeout(() => setToast(''), 2500);
+      loadItems();
+    } else {
+      setError(data.error || 'Something went wrong. Try again.');
+    }
+  }
+
+  async function handleDeleteConfirmed() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const res = await fetch('/api/items', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId: deleteTarget.itemId }),
+    });
+    setDeleting(false);
+    setDeleteTarget(null);
+    if (res.ok) {
+      setToast(`Removed "${deleteTarget.name}."`);
+      setTimeout(() => setToast(''), 2500);
+      loadItems();
+    } else {
+      setToast('Something went wrong. Try again.');
+      setTimeout(() => setToast(''), 2500);
+    }
+  }
+
+  const filteredItems = items.filter((it) => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    return it.name.toLowerCase().includes(q) || String(it.invCode).includes(q);
+  });
+
+  return (
+    <div className="max-w-2xl mx-auto px-5 pt-5">
+      <p className="text-sm text-navy-900/60 mb-5 leading-relaxed">
+        Add a new item to track across every van, or remove one that's no longer stocked.
+        Adding an item creates a zeroed row for it on all 9 vans right away.
+      </p>
+
+      <form
+        onSubmit={handleAdd}
+        className="bg-white rounded-xl border border-navy-900/10 p-4 mb-6 space-y-3"
+      >
+        <h2 className="font-display font-semibold text-navy-900 text-sm">Add new item</h2>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Item name, e.g. Cyberpower Battery Backup"
+            required
+            className="flex-1 rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          />
+          <input
+            type="number"
+            value={invCode}
+            onChange={(e) => setInvCode(e.target.value)}
+            placeholder="Inv code"
+            required
+            className="w-28 rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          />
+        </div>
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-lg bg-navy-900 text-white text-sm font-medium px-4 py-2 hover:bg-ember-600 transition disabled:opacity-50"
+        >
+          {saving ? 'Adding...' : 'Add item'}
+        </button>
+      </form>
+
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Filter items or code..."
+        className="w-full rounded-lg border border-navy-900/15 bg-white px-4 py-2.5 text-sm mb-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+      />
+
+      {loading ? (
+        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+      ) : (
+        <ul className="space-y-2 pb-10">
+          {filteredItems.map((it) => (
+            <li
+              key={it.itemId}
+              className="bg-white rounded-xl border border-navy-900/10 px-4 py-3 flex items-center gap-3"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-navy-900 leading-snug">{it.name}</p>
+                <p className="text-[11px] font-mono text-navy-900/40">#{it.invCode}</p>
+              </div>
+              <button
+                onClick={() => setDeleteTarget(it)}
+                className="text-xs text-red-600 border border-red-200 rounded-full px-3 py-1.5 hover:bg-red-50"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+          {filteredItems.length === 0 && (
+            <p className="text-center text-navy-900/40 py-10 text-sm">No items match.</p>
+          )}
+        </ul>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
+          {toast}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-navy-900/50 flex items-center justify-center px-6 z-20">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
+            <h2 className="font-display text-lg font-semibold text-navy-900">Remove this item?</h2>
+            <p className="text-sm text-navy-900/60 mt-2 leading-relaxed">
+              "{deleteTarget.name}" will be removed from every van's inventory and its history.
+              This cannot be undone.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 rounded-lg border border-navy-900/15 text-navy-900 font-medium py-2.5 hover:bg-navy-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirmed}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-red-600 text-white font-medium py-2.5 hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Removing...' : 'Yes, remove'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
