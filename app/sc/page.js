@@ -13,7 +13,7 @@ const POLL_MS = 4000;
 
 export default function ScPage() {
   const router = useRouter();
-  const [tab, setTab] = useState('inventory'); // 'inventory' | 'locations' | 'items'
+  const [tab, setTab] = useState('inventory'); // 'inventory' | 'locations' | 'items' | 'reports'
   const [vans, setVans] = useState([]);
   const [vanId, setVanId] = useState('');
   const [items, setItems] = useState([]);
@@ -116,6 +116,9 @@ export default function ScPage() {
           <TabButton active={tab === 'items'} onClick={() => setTab('items')}>
             Manage Items
           </TabButton>
+          <TabButton active={tab === 'reports'} onClick={() => setTab('reports')}>
+            Reports
+          </TabButton>
         </div>
       </header>
 
@@ -134,8 +137,10 @@ export default function ScPage() {
         />
       ) : tab === 'locations' ? (
         <LocationsTab vans={vans} onChanged={refreshVans} />
-      ) : (
+      ) : tab === 'items' ? (
         <ItemsTab />
+      ) : (
+        <ReportsTab />
       )}
 
       {toast && (
@@ -544,6 +549,156 @@ function ItemsTab() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function toDateInputValue(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function ReportsTab() {
+  const today = useMemo(() => new Date(), []);
+  const weekAgo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d;
+  }, []);
+
+  const [start, setStart] = useState(toDateInputValue(weekAgo));
+  const [end, setEnd] = useState(toDateInputValue(today));
+  const [lastExportedAt, setLastExportedAt] = useState(null);
+  const [summary, setSummary] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadLastExport = useCallback(async () => {
+    const res = await fetch('/api/reports/last-export');
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) setLastExportedAt(data.lastExportedAt);
+  }, []);
+
+  const loadSummary = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    const res = await fetch(`/api/reports/summary?start=${start}&end=${end}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setSummary(data.vans || []);
+    } else {
+      setError(data.error || 'Something went wrong loading the summary.');
+    }
+    setLoading(false);
+  }, [start, end]);
+
+  useEffect(() => {
+    loadLastExport();
+  }, [loadLastExport]);
+
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
+
+  function handleExport() {
+    setExporting(true);
+    window.location.href = `/api/reports/export?start=${start}&end=${end}`;
+    // The browser download starts immediately; refresh the "last exported" stamp
+    // shortly after, since the export route records it server-side as it runs.
+    setTimeout(() => {
+      loadLastExport();
+      setExporting(false);
+    }, 1200);
+  }
+
+  const totalMoves = summary.reduce((sum, v) => sum + v.moves.length, 0);
+
+  return (
+    <div className="max-w-2xl mx-auto px-5 pt-5 pb-10">
+      <p className="text-sm text-navy-900/60 mb-5 leading-relaxed">
+        Pick a date range to see what moved into each van, and export it as a CSV for your
+        records.
+      </p>
+
+      <div className="bg-white rounded-xl border border-navy-900/10 p-4 mb-6 space-y-3">
+        <div className="flex gap-3">
+          <label className="flex-1 text-xs text-navy-900/60">
+            Start
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              max={end}
+              className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            />
+          </label>
+          <label className="flex-1 text-xs text-navy-900/60">
+            End
+            <input
+              type="date"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              min={start}
+              max={toDateInputValue(today)}
+              className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <p className="text-[11px] text-navy-900/40 font-mono">
+            {lastExportedAt
+              ? `Last exported ${new Date(lastExportedAt).toLocaleString()}`
+              : 'No exports yet'}
+          </p>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="rounded-lg bg-navy-900 text-white text-sm font-medium px-4 py-2 hover:bg-ember-600 transition disabled:opacity-50 whitespace-nowrap"
+          >
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </button>
+        </div>
+      </div>
+
+      <h2 className="font-display font-semibold text-navy-900 text-sm mb-3">
+        Summary {totalMoves > 0 && !loading ? `(${totalMoves} transfer${totalMoves === 1 ? '' : 's'})` : ''}
+      </h2>
+
+      {loading ? (
+        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+      ) : error ? (
+        <p className="text-center text-red-600 py-10 text-sm">{error}</p>
+      ) : summary.length === 0 ? (
+        <p className="text-center text-navy-900/40 py-10 text-sm">
+          No transfers moved into any van in this date range.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {summary.map((van) => (
+            <div key={van.vanId} className="bg-white rounded-xl border border-navy-900/10 p-4">
+              <p className="font-display font-semibold text-navy-900 text-sm mb-1">
+                {van.locationName} · {van.code}
+              </p>
+              <ul className="divide-y divide-navy-900/5 mt-2">
+                {van.moves.map((m, i) => (
+                  <li key={i} className="py-2 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-navy-900 leading-snug">{m.name}</p>
+                      <p className="text-[11px] font-mono text-navy-900/40">
+                        #{m.invCode} · {new Date(m.completedAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <span className="font-mono text-sm font-semibold text-stock-up whitespace-nowrap">
+                      +{m.delta}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </div>
