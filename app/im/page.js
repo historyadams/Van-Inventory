@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 export default function ImPage() {
   const router = useRouter();
-  const [tab, setTab] = useState('adjust'); // 'adjust' | 'history'
+  const [tab, setTab] = useState('adjust'); // 'adjust' | 'history' | 'allSummary'
   const [vans, setVans] = useState([]);
   const [vanId, setVanId] = useState('');
   const [items, setItems] = useState([]);
@@ -126,6 +126,9 @@ export default function ImPage() {
           <ImTabButton active={tab === 'history'} onClick={() => setTab('history')}>
             History
           </ImTabButton>
+          <ImTabButton active={tab === 'allSummary'} onClick={() => setTab('allSummary')}>
+            All Van Summary
+          </ImTabButton>
         </div>
       </header>
 
@@ -142,8 +145,10 @@ export default function ImPage() {
           changeCount={changeCount}
           handleSubmit={handleSubmit}
         />
-      ) : (
+      ) : tab === 'history' ? (
         <HistoryTab vanId={vanId} />
+      ) : (
+        <AllVanSummaryTab />
       )}
     </main>
   );
@@ -381,6 +386,120 @@ function HistoryTab({ vanId }) {
             <p className="text-center text-navy-900/40 py-10 text-sm">No items match.</p>
           )}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function AllVanSummaryTab() {
+  const today = useMemo(() => new Date(), []);
+  const weekAgo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d;
+  }, []);
+
+  const [start, setStart] = useState(toDateInputValue(weekAgo));
+  const [end, setEnd] = useState(toDateInputValue(today));
+  const [vans, setVans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadSummary = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    const res = await fetch(`/api/inventory/all-summary?start=${start}&end=${end}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setVans(data.vans || []);
+    } else {
+      setError(data.error || 'Something went wrong loading the summary.');
+    }
+    setLoading(false);
+  }, [start, end]);
+
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
+
+  return (
+    <div className="max-w-2xl mx-auto px-5 pt-5 pb-10">
+      <p className="text-sm text-navy-900/60 mb-5 leading-relaxed">
+        Current stock and what moved for every van in the date range below. Only items with
+        activity in that range are shown.
+      </p>
+
+      <div className="bg-white rounded-xl border border-navy-900/10 p-4 mb-6 flex gap-3">
+        <label className="flex-1 text-xs text-navy-900/60">
+          Start
+          <input
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            max={end}
+            className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          />
+        </label>
+        <label className="flex-1 text-xs text-navy-900/60">
+          End
+          <input
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            min={start}
+            max={toDateInputValue(today)}
+            className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+          />
+        </label>
+      </div>
+
+      {loading ? (
+        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+      ) : error ? (
+        <p className="text-center text-red-600 py-10 text-sm">{error}</p>
+      ) : vans.length === 0 ? (
+        <p className="text-center text-navy-900/40 py-10 text-sm">
+          No activity across any van in this date range.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {vans.map((van) => (
+            <div key={van.vanId} className="bg-white rounded-xl border border-navy-900/10 p-4">
+              <p className="font-display font-semibold text-navy-900 text-sm mb-2">
+                {van.locationName} · {van.code}
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] text-navy-900/40 uppercase tracking-wide">
+                    <th className="text-left font-medium pb-1">Item</th>
+                    <th className="text-right font-medium pb-1 w-16">Stock</th>
+                    <th className="text-right font-medium pb-1 w-16">Added</th>
+                    <th className="text-right font-medium pb-1 w-16">Removed</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-navy-900/5">
+                  {van.items.map((it) => (
+                    <tr key={it.itemId}>
+                      <td className="py-1.5 pr-2">
+                        <p className="text-navy-900 leading-snug">{it.name}</p>
+                        <p className="text-[11px] font-mono text-navy-900/40">#{it.invCode}</p>
+                      </td>
+                      <td className="py-1.5 text-right font-mono tabular-nums text-navy-900">
+                        {it.currentQty}
+                      </td>
+                      <td className="py-1.5 text-right font-mono tabular-nums text-stock-up">
+                        {it.added > 0 ? `+${it.added}` : '-'}
+                      </td>
+                      <td className="py-1.5 text-right font-mono tabular-nums text-stock-down">
+                        {it.removed > 0 ? `-${it.removed}` : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
