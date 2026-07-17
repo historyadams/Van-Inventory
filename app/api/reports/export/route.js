@@ -46,18 +46,18 @@ export async function GET(req) {
     ORDER BY l.name, v.suffix, h.completed_at;
   `;
 
-  const header = ['Location', 'Van', 'Item', 'Inv Code', 'Qty Moved In', 'Date'];
+  const header = ['Date', 'Location', 'Van', 'Item #', 'Display Name', 'QTY'];
   const lines = [header.join(',')];
 
   for (const r of rows) {
     lines.push(
       [
+        csvEscape(new Date(r.completed_at).toLocaleString('en-US')),
         csvEscape(reportLocationLabel(r.prefix)),
         csvEscape(`${r.prefix}${r.suffix}`),
-        csvEscape(r.item_name),
         csvEscape(r.inv_code),
+        csvEscape(r.item_name),
         csvEscape(r.delta_applied),
-        csvEscape(new Date(r.completed_at).toLocaleString('en-US')),
       ].join(',')
     );
   }
