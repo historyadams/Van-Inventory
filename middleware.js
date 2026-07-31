@@ -20,9 +20,19 @@ export async function middleware(req) {
     }
   }
 
+  if (pathname.startsWith('/audit')) {
+    const imValue = req.cookies.get(IM_COOKIE_NAME)?.value;
+    const scValue = req.cookies.get(SC_COOKIE_NAME)?.value;
+    const imRole = await verifyRoleCookie(imValue);
+    const scRole = await verifyRoleCookie(scValue);
+    if (imRole !== 'im' && scRole !== 'sc') {
+      return NextResponse.redirect(new URL('/', req.url));
+    }
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/im/:path*', '/sc/:path*'],
+  matcher: ['/im/:path*', '/sc/:path*', '/audit/:path*'],
 };
