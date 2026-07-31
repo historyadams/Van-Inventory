@@ -14,6 +14,7 @@ export default function ImPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState('');
+  const [multiOpen, setMultiOpen] = useState(false);
 
   useEffect(() => {
     fetch('/api/vans')
@@ -106,7 +107,7 @@ export default function ImPage() {
             Log out
           </button>
         </div>
-        <div className="max-w-2xl mx-auto px-5 pb-4 flex gap-3">
+        <div className="max-w-2xl mx-auto px-5 pb-3 flex gap-3">
           <select
             value={vanId}
             onChange={(e) => setVanId(e.target.value)}
@@ -118,6 +119,22 @@ export default function ImPage() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="max-w-2xl mx-auto px-5 pb-3 flex gap-2 flex-wrap">
+          <a
+            href={`/audit?van=${vanId}&from=im`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs bg-white/10 border border-white/20 text-white rounded-full px-3 py-1.5 hover:bg-white/20 transition whitespace-nowrap"
+          >
+            Print Audit Sheet
+          </a>
+          <button
+            onClick={() => setMultiOpen(true)}
+            className="text-xs bg-white/10 border border-white/20 text-white rounded-full px-3 py-1.5 hover:bg-white/20 transition whitespace-nowrap"
+          >
+            Print Multiple Audit Sheets
+          </button>
         </div>
         <div className="max-w-2xl mx-auto px-5 flex gap-1 text-sm">
           <ImTabButton active={tab === 'adjust'} onClick={() => setTab('adjust')}>
@@ -150,6 +167,10 @@ export default function ImPage() {
       ) : (
         <AllVanSummaryTab />
       )}
+
+      {multiOpen && (
+        <MultiPrintModal vans={vans} from="im" onClose={() => setMultiOpen(false)} />
+      )}
     </main>
   );
 }
@@ -164,6 +185,88 @@ function ImTabButton({ active, onClick, children }) {
     >
       {children}
     </button>
+  );
+}
+
+function MultiPrintModal({ vans, from, onClose }) {
+  const [selected, setSelected] = useState(() => new Set(vans.map((v) => v.id)));
+
+  function toggle(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelected(new Set(vans.map((v) => v.id)));
+  }
+
+  function selectNone() {
+    setSelected(new Set());
+  }
+
+  function handlePrint() {
+    const ids = Array.from(selected).join(',');
+    window.open(`/audit/multi?vans=${ids}&from=${from}`, '_blank');
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-navy-900/50 flex items-center justify-center px-6 z-30">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
+        <h2 className="font-display text-lg font-semibold text-navy-900 mb-1">
+          Print multiple audit sheets
+        </h2>
+        <p className="text-sm text-navy-900/60 mb-4">Choose which vans to include.</p>
+
+        <div className="flex gap-3 mb-3 text-xs">
+          <button onClick={selectAll} className="text-navy-900/60 hover:text-navy-900 underline">
+            Select all
+          </button>
+          <button onClick={selectNone} className="text-navy-900/60 hover:text-navy-900 underline">
+            Select none
+          </button>
+        </div>
+
+        <div className="max-h-64 overflow-y-auto space-y-1 mb-4 border border-navy-900/10 rounded-lg p-2">
+          {vans.map((v) => (
+            <label
+              key={v.id}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-navy-50 cursor-pointer text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(v.id)}
+                onChange={() => toggle(v.id)}
+                className="accent-ember-600"
+              />
+              <span className="text-navy-900">
+                {v.locationName} · {v.code}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-navy-900/15 text-navy-900 font-medium py-2.5 hover:bg-navy-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handlePrint}
+            disabled={selected.size === 0}
+            className="flex-1 rounded-lg bg-navy-900 text-white font-medium py-2.5 hover:bg-ember-600 transition disabled:opacity-40"
+          >
+            Print ({selected.size})
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
