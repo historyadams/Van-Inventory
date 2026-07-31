@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AuditSheet } from '../AuditSheet';
+import { AuditSheet } from './AuditSheet';
 
 export default function AuditPageWrapper() {
   return (
