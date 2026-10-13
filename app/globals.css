@@ -262,3 +262,11 @@ body {
 input[type='date']::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
 }
+
+/* Audit sheets print on plain white paper */
+@media print {
+  body {
+    background: white !important;
+    color: black;
+  }
+}

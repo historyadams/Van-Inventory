@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopBar, SyncStatus, LogoutButton } from '../../components/TopBar';
+import { AuditButtons } from '../../components/AuditButtons';
 import { Tabs, Toast, DateRange, EmptyState, useDefaultRange } from '../../components/ui';
 
 const LOCATIONS = [
@@ -144,7 +145,7 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
         {lastSynced && <p className="text-[11px] text-dim shrink-0">live as of {lastSynced.toLocaleTimeString()}</p>}
       </div>
 
-      <select value={vanId} onChange={(e) => setVanId(e.target.value)} aria-label="Van" className="input mb-4">
+      <select value={vanId} onChange={(e) => setVanId(e.target.value)} aria-label="Van" className="input mb-2">
         {vans.map((v) => (
           <option key={v.id} value={v.id}>
             {v.locationName} · {v.code}
@@ -152,6 +153,9 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
           </option>
         ))}
       </select>
+      <div className="mb-4">
+        <AuditButtons vans={vans} vanId={vanId} from="sc" />
+      </div>
 
       {loading ? (
         <EmptyState>Loading...</EmptyState>

@@ -12,6 +12,7 @@ POS360 Supply Chain Ops tool for logging what gets loaded from the warehouse int
 - Pick a van, tap **+** for each item loaded into it, then **Send**. The **−** button only fixes a mis-tap before sending and never goes below zero.
 - **History** shows everything confirmed as loaded into that van over a date range.
 - **All Vans** shows totals loaded into every van over a date range.
+- **Print Audit Sheet / Print Multiple** prints blank count sheets (every item with an empty Count box) for one or more vans. Also available on the Supply Chain Incoming tab.
 
 ### Supply Chain
 - **Incoming** watches additions arrive live (refreshes every 4 seconds) and shows which vans have something waiting. **Update completed** logs them as loaded and clears the list.

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopBar, LogoutButton } from '../../components/TopBar';
+import { AuditButtons } from '../../components/AuditButtons';
 import {
   Tabs,
   Toast,
@@ -65,6 +66,9 @@ export default function ImPage() {
               ))}
             </select>
           )}
+          <div className="mb-2">
+            <AuditButtons vans={vans} vanId={vanId} from="im" />
+          </div>
           <Tabs tabs={TABS} active={tab} onChange={setTab} />
           <div className="divider my-4" />
 
