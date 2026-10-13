@@ -234,7 +234,7 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
       {confirmOpen && (
         <ConfirmModal
           title="Are you sure?"
-          body="This logs every addition shown right now as loaded into this van and clears the list. This cannot be undone."
+          body="This logs everything waiting for this van as loaded (including anything sent in the last few seconds) and clears the list. This cannot be undone."
           confirmLabel={completing ? 'Updating...' : 'Yes, update'}
           loading={completing}
           onCancel={() => setConfirmOpen(false)}
@@ -398,7 +398,11 @@ function ItemsTab() {
     setDupPrompt(null);
 
     if (res.ok) {
-      showToast(`Added "${name.trim()}" to ${categoryLabel(effectiveCategory)}.`);
+      showToast(
+        effectiveCategory === 'atypical'
+          ? `Added "${name.trim()}" to Atypical (hidden - tap Atypical to see it).`
+          : `Added "${name.trim()}" to ${categoryLabel(effectiveCategory)}.`
+      );
       setName('');
       setInvCode('');
       setCategory('');
@@ -456,7 +460,12 @@ function ItemsTab() {
 
   const filteredItems = useMemo(() => filterItems(items, { selected, query }), [items, selected, query]);
   const groups = useMemo(() => groupByCategory(filteredItems), [filteredItems]);
-  const counts = useMemo(() => countByCategory(items), [items]);
+  const searching = query.trim() !== '';
+  // While searching, button counts show how many matches each category has.
+  const counts = useMemo(
+    () => countByCategory(searching ? filteredItems : items),
+    [searching, filteredItems, items]
+  );
 
   return (
     <>
@@ -509,6 +518,8 @@ function ItemsTab() {
           onChange={setSelected}
           counts={counts}
           shown={filteredItems.length}
+          searching={searching}
+          onClearSearch={() => setQuery('')}
         />
       </div>
 

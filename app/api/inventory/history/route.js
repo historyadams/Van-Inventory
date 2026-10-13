@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getRole, sql } from '../../../../lib/db';
-import { parseDateRange } from '../../../../lib/reportDates';
+import { parseDateRange, REPORT_TZ } from '../../../../lib/reportDates';
 
 // Movement log for one van: every confirmed load in the date range, grouped by
 // the "Update completed" that confirmed it (rows from one confirmation share
@@ -28,8 +28,7 @@ export async function GET(req) {
     JOIN items i ON i.id = h.item_id
     WHERE h.van_id = ${vanId}
       AND h.delta_applied > 0
-      AND h.completed_at >= ${start}::date
-      AND h.completed_at < (${end}::date + INTERVAL '1 day')
+      AND (h.completed_at AT TIME ZONE ${REPORT_TZ})::date BETWEEN ${start}::date AND ${end}::date
     ORDER BY h.completed_at DESC, i.name;
   `;
 

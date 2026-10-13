@@ -11,13 +11,13 @@ POS360 Supply Chain Ops tool for logging what gets loaded from the warehouse int
 ### Categories
 Items are grouped into Drawers & Mounts (1xxx), Printers (2xxx), Payment Terminals (3xxx PAX), Hardware & Network (other 3xxx), 360 Systems (9xxx) and Atypical. Atypical holds the items from InventorySnapshot.xlsx that weren't in the app before (imported automatically once, see `lib/schema.js`).
 
-- Filter buttons on Load Van and Items are multi-select and show how many items each holds. With none on, everything except Atypical shows. Lists are grouped under category headings.
-- Atypical items only show when their button is on, or when searching (search always covers every item).
+- Filter buttons on Load Van and Items: **All** (default) shows everything except Atypical; category buttons are multi-select and show how many items each holds. Lists are grouped under category headings.
+- Atypical items only show when their button is on, or when searching. Search always covers every item and ignores the buttons.
 - Atypical items stay off the printed audit sheets.
 - New items get a category picked from their leading number, which can be changed when adding or later with Edit in the Items tab.
 
 ### Inventory Management
-- Pick a van, tap **+** for each item loaded into it, then **Send**. **Clear** wipes the unsent taps if you make a mistake.
+- Pick a van, tap **+** for each item loaded into it, then **Send**. The Send button names the van; taps survive switching tabs, switching vans asks before discarding them, and each phone remembers its last van. A send is all-or-nothing, so retrying after a failure never double-counts. **Clear** wipes the unsent taps if you make a mistake.
 - **History** shows everything confirmed as loaded into that van over a date range.
 - **All Vans** shows totals loaded into every van over a date range.
 - **Print Audit Sheet / Print Multiple** prints blank count sheets (every item with an empty Count box) for one or more vans. Also available on the Supply Chain Incoming tab.
@@ -30,6 +30,8 @@ Items are grouped into Drawers & Mounts (1xxx), Printers (2xxx), Payment Termina
 - **Reports:** view what was loaded into each van over a date range, and export it as CSV.
 
 ## How the numbers work
+
+- Dates in History, Reports and the CSV are Pacific time (`REPORT_TZ` in `lib/reportDates.js`).
 
 - Each van x item row has a `pending_delta`: additions sent by Inventory Management that Supply Chain hasn't confirmed yet. Sends are atomic increments, so two people sending at once never overwrite each other.
 - **Update completed** runs one database transaction that writes the pending additions to `update_history` (the movement log) and resets them to zero. Anything sent a split second before the click is still captured.

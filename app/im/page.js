@@ -23,20 +23,61 @@ const TABS = [
   { key: 'allSummary', label: 'All Vans' },
 ];
 
+const LAST_VAN_KEY = 'vim:lastVanId';
+
+function readLastVan() {
+  try {
+    return window.localStorage.getItem(LAST_VAN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveLastVan(id) {
+  try {
+    window.localStorage.setItem(LAST_VAN_KEY, id);
+  } catch {
+    // Storage blocked (private window etc.) - just don't remember.
+  }
+}
+
 export default function ImPage() {
   const router = useRouter();
   const [tab, setTab] = useState('load');
   const [vans, setVans] = useState([]);
   const [vanId, setVanId] = useState('');
+  // Unsent taps live here (not in LoadTab) so switching tabs never loses them.
+  const [adds, setAdds] = useState({}); // itemId -> qty being added
+  const [pendingVanId, setPendingVanId] = useState(null); // van change awaiting "discard?" answer
 
   useEffect(() => {
     fetch('/api/vans')
       .then((r) => r.json())
       .then((data) => {
-        setVans(data.vans || []);
-        if (data.vans && data.vans.length > 0) setVanId(String(data.vans[0].id));
+        const list = data.vans || [];
+        setVans(list);
+        // Start on the van this phone used last, if it still exists.
+        const last = readLastVan();
+        const start = list.find((v) => String(v.id) === last) || list[0];
+        if (start) setVanId(String(start.id));
       });
   }, []);
+
+  const unsentLines = Object.values(adds).filter((q) => q > 0).length;
+  const currentVan = vans.find((v) => String(v.id) === vanId);
+
+  function switchVan(id) {
+    setAdds({});
+    setVanId(id);
+    saveLastVan(id);
+    setPendingVanId(null);
+  }
+
+  function requestVanChange(id) {
+    if (id === vanId) return;
+    if (unsentLines > 0) setPendingVanId(id);
+    else switchVan(id);
+  }
 
   async function handleLogout() {
     await fetch('/api/logout', {
@@ -48,6 +89,10 @@ export default function ImPage() {
     router.refresh();
   }
 
+  const tabs = TABS.map((t) =>
+    t.key === 'load' && unsentLines > 0 ? { ...t, label: `Load Van (${unsentLines})` } : t
+  );
+
   return (
     <main className="min-h-screen pb-32">
       <TopBar right={<LogoutButton onClick={handleLogout} />} />
@@ -58,7 +103,7 @@ export default function ImPage() {
           {tab !== 'allSummary' && (
             <select
               value={vanId}
-              onChange={(e) => setVanId(e.target.value)}
+              onChange={(e) => requestVanChange(e.target.value)}
               aria-label="Van"
               className="input mb-3"
             >
@@ -72,25 +117,44 @@ export default function ImPage() {
           <div className="mb-2">
             <AuditButtons vans={vans} vanId={vanId} from="im" />
           </div>
-          <Tabs tabs={TABS} active={tab} onChange={setTab} />
+          <Tabs tabs={tabs} active={tab} onChange={setTab} />
           <div className="divider my-4" />
 
-          {tab === 'load' ? (
-            <LoadTab vanId={vanId} />
-          ) : tab === 'history' ? (
-            <HistoryTab vanId={vanId} />
-          ) : (
-            <AllVanSummaryTab />
-          )}
+          {/* LoadTab stays mounted (just hidden) so its list, filters and taps survive tab switches. */}
+          <div className={tab === 'load' ? '' : 'hidden'}>
+            <LoadTab vanId={vanId} vanCode={currentVan?.code || ''} adds={adds} setAdds={setAdds} />
+          </div>
+          {tab === 'history' && <HistoryTab vanId={vanId} />}
+          {tab === 'allSummary' && <AllVanSummaryTab />}
         </div>
       </div>
+
+      {pendingVanId && (
+        <div className="modal-backdrop">
+          <div className="card max-w-sm w-full p-6">
+            <h2 className="text-lg font-bold text-white">Discard unsent items?</h2>
+            <p className="text-sm text-muted mt-2 leading-relaxed">
+              You have {unsentLines} item{unsentLines === 1 ? '' : 's'} tapped for {currentVan?.code} that
+              {unsentLines === 1 ? " hasn't" : " haven't"} been sent. Switching vans will discard{' '}
+              {unsentLines === 1 ? 'it' : 'them'}.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button onClick={() => setPendingVanId(null)} className="btn-ghost flex-1">
+                Keep them
+              </button>
+              <button onClick={() => switchVan(pendingVanId)} className="btn-primary flex-1">
+                Discard &amp; switch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
 
-function LoadTab({ vanId }) {
+function LoadTab({ vanId, vanCode, adds, setAdds }) {
   const [items, setItems] = useState([]);
-  const [adds, setAdds] = useState({}); // itemId -> qty being added this session
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(() => new Set()); // category filter keys
   const [loading, setLoading] = useState(true);
@@ -101,9 +165,8 @@ function LoadTab({ vanId }) {
     if (!id) return;
     setLoading(true);
     const res = await fetch(`/api/inventory?van=${id}`);
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setItems(data.items || []);
-    setAdds({});
     setLoading(false);
   }, []);
 
@@ -135,10 +198,12 @@ function LoadTab({ vanId }) {
     setSubmitting(false);
 
     if (res.ok) {
-      showToast('Sent to Supply Chain.');
+      setAdds({});
+      showToast(`Sent to Supply Chain for ${vanCode}.`);
       loadItems(vanId);
     } else {
-      showToast('Submit failed. Try again.');
+      // Nothing was recorded (the send is all-or-nothing), so it's safe to retry.
+      showToast('Send failed - nothing was recorded. Try again.');
     }
   }
 
@@ -147,7 +212,12 @@ function LoadTab({ vanId }) {
     [items, selected, query]
   );
   const groups = useMemo(() => groupByCategory(filteredItems), [filteredItems]);
-  const counts = useMemo(() => countByCategory(items), [items]);
+  const searching = query.trim() !== '';
+  // While searching, button counts show how many matches each category has.
+  const counts = useMemo(
+    () => countByCategory(searching ? filteredItems : items),
+    [searching, filteredItems, items]
+  );
 
   const lineCount = Object.values(adds).filter((q) => q > 0).length;
   const unitCount = Object.values(adds).reduce((s, q) => s + q, 0);
@@ -172,6 +242,8 @@ function LoadTab({ vanId }) {
           onChange={setSelected}
           counts={counts}
           shown={filteredItems.length}
+          searching={searching}
+          onClearSearch={() => setQuery('')}
         />
       </div>
 
@@ -235,7 +307,7 @@ function LoadTab({ vanId }) {
             {submitting
               ? 'Sending...'
               : lineCount
-              ? `Send ${unitCount} unit${unitCount === 1 ? '' : 's'} (${lineCount} item${lineCount === 1 ? '' : 's'})`
+              ? `Send ${unitCount} unit${unitCount === 1 ? '' : 's'} (${lineCount} item${lineCount === 1 ? '' : 's'}) to ${vanCode}`
               : 'Nothing added yet'}
           </button>
         </div>

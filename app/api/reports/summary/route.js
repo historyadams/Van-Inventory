@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getScRole, sql } from '../../../../lib/db';
-import { parseDateRange } from '../../../../lib/reportDates';
+import { parseDateRange, REPORT_TZ } from '../../../../lib/reportDates';
 import { reportLocationLabel } from '../../../../lib/reportLocationLabels';
 
 export async function GET(req) {
@@ -29,8 +29,7 @@ export async function GET(req) {
     JOIN vans v ON v.id = h.van_id
     JOIN locations l ON l.prefix = v.prefix
     JOIN items i ON i.id = h.item_id
-    WHERE h.completed_at >= ${start}::date
-      AND h.completed_at < (${end}::date + INTERVAL '1 day')
+    WHERE (h.completed_at AT TIME ZONE ${REPORT_TZ})::date BETWEEN ${start}::date AND ${end}::date
       AND h.delta_applied > 0
     ORDER BY l.name, v.suffix, h.completed_at DESC;
   `;

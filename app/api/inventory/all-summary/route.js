@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getRole, sql } from '../../../../lib/db';
-import { parseDateRange } from '../../../../lib/reportDates';
+import { parseDateRange, REPORT_TZ } from '../../../../lib/reportDates';
 
 export async function GET(req) {
   const role = await getRole();
@@ -30,8 +30,7 @@ export async function GET(req) {
     JOIN locations l ON l.prefix = v.prefix
     JOIN items i ON i.id = h.item_id
     WHERE h.delta_applied > 0
-      AND h.completed_at >= ${start}::date
-      AND h.completed_at < (${end}::date + INTERVAL '1 day')
+      AND (h.completed_at AT TIME ZONE ${REPORT_TZ})::date BETWEEN ${start}::date AND ${end}::date
     GROUP BY v.id, v.prefix, v.suffix, l.name, i.id, i.name, i.inv_code
     ORDER BY l.name, v.suffix, i.name;
   `;

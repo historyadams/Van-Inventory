@@ -58,8 +58,11 @@ export function Tabs({ tabs, active, onChange }) {
   );
 }
 
+// YYYY-MM-DD in the viewer's local time (toISOString would give the UTC date,
+// which rolls over to tomorrow in the evening in California).
 export function toDateInputValue(date) {
-  return date.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 // Start/end date pickers defaulting to the last 7 days.
@@ -104,47 +107,56 @@ export function EmptyState({ children }) {
   return <p className="text-center text-dim py-10 text-sm">{children}</p>;
 }
 
-// Multi-select category filter buttons. `selected` is a Set of category keys,
-// `counts` maps category key -> number of items, `shown` is how many items the
-// list is currently showing.
-export function CategoryFilters({ categories, selected, onChange, counts = {}, shown }) {
+// Category filter buttons: "All" plus one per category, multi-select.
+// `selected` is a Set of category keys (empty = All), `counts` maps category
+// key -> item count (pass search-match counts while searching), `shown` is how
+// many items the list is showing. While searching, every item is searched, so
+// the category buttons are dimmed and the status line says so; tapping one
+// clears the search.
+export function CategoryFilters({ categories, selected, onChange, counts = {}, shown, searching, onClearSearch }) {
+  // Tapping any button while searching clears the search so the tap takes effect.
+  function pick(next) {
+    if (searching && onClearSearch) onClearSearch();
+    onChange(next);
+  }
   function toggle(key) {
     const next = new Set(selected);
     if (next.has(key)) next.delete(key);
     else next.add(key);
-    onChange(next);
+    pick(next);
   }
+  const allOn = selected.size === 0;
+  const btn = 'tile-btn !h-10 !px-2 !text-[12px]';
+  const plural = shown === 1 ? '' : 's';
+
+  let status;
+  if (searching) status = `${shown} match${shown === 1 ? '' : 'es'} across all items`;
+  else if (allOn) status = `Showing ${shown} item${plural} · Atypical hidden (tap it to show)`;
+  else
+    status = `Showing ${shown} item${plural} in ${categories
+      .filter((c) => selected.has(c.key))
+      .map((c) => c.label)
+      .join(', ')}`;
+
   return (
     <div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 transition-opacity ${searching ? 'opacity-40' : ''}`}>
+        <button onClick={() => pick(new Set())} aria-pressed={allOn} className={`${btn} ${allOn ? 'is-on' : ''}`}>
+          All
+        </button>
         {categories.map((c) => (
           <button
             key={c.key}
             onClick={() => toggle(c.key)}
             aria-pressed={selected.has(c.key)}
-            className={`tile-btn !h-10 !px-2 !text-[12px] ${selected.has(c.key) ? 'is-on' : ''}`}
+            className={`${btn} ${selected.has(c.key) ? 'is-on' : ''}`}
           >
             {c.label}
             <span className="opacity-60 tabular-nums">· {counts[c.key] || 0}</span>
           </button>
         ))}
       </div>
-      <div className="flex items-center justify-between mt-2 text-[11px] text-dim">
-        <span>
-          {shown !== undefined && `Showing ${shown} item${shown === 1 ? '' : 's'}`}
-          {selected.size > 0
-            ? ` in ${categories
-                .filter((c) => selected.has(c.key))
-                .map((c) => c.label)
-                .join(', ')}`
-            : ' · Atypical hidden unless searching'}
-        </span>
-        {selected.size > 0 && (
-          <button onClick={() => onChange(new Set())} className="text-primary font-semibold hover:underline">
-            Clear filters
-          </button>
-        )}
-      </div>
+      <p className="mt-2 text-[11px] text-dim">{status}</p>
     </div>
   );
 }
