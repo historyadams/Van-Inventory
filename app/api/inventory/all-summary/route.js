@@ -13,9 +13,8 @@ export async function GET(req) {
     return NextResponse.json({ error }, { status: 400 });
   }
 
-  // Only returns items that actually had something added or removed in the
-  // date range - keeps the "all vans on one page" view tight instead of
-  // showing every item x every van.
+  // Total loaded into each van per item over the date range. Only items that
+  // were actually loaded show up.
   const rows = await sql`
     SELECT
       v.id AS van_id,
@@ -25,22 +24,15 @@ export async function GET(req) {
       i.id AS item_id,
       i.name AS item_name,
       i.inv_code,
-      vi.qty AS current_qty,
-      COALESCE(SUM(CASE WHEN h.delta_applied > 0 THEN h.delta_applied ELSE 0 END), 0) AS added,
-      COALESCE(SUM(CASE WHEN h.delta_applied < 0 THEN -h.delta_applied ELSE 0 END), 0) AS removed
-    FROM van_inventory vi
-    JOIN vans v ON v.id = vi.van_id
+      SUM(h.delta_applied)::int AS added
+    FROM update_history h
+    JOIN vans v ON v.id = h.van_id
     JOIN locations l ON l.prefix = v.prefix
-    JOIN items i ON i.id = vi.item_id
-    LEFT JOIN update_history h
-      ON h.van_id = vi.van_id
-      AND h.item_id = vi.item_id
+    JOIN items i ON i.id = h.item_id
+    WHERE h.delta_applied > 0
       AND h.completed_at >= ${start}::date
       AND h.completed_at < (${end}::date + INTERVAL '1 day')
-    GROUP BY v.id, v.prefix, v.suffix, l.name, i.id, i.name, i.inv_code, vi.qty
-    HAVING
-      COALESCE(SUM(CASE WHEN h.delta_applied > 0 THEN h.delta_applied ELSE 0 END), 0) > 0
-      OR COALESCE(SUM(CASE WHEN h.delta_applied < 0 THEN -h.delta_applied ELSE 0 END), 0) > 0
+    GROUP BY v.id, v.prefix, v.suffix, l.name, i.id, i.name, i.inv_code
     ORDER BY l.name, v.suffix, i.name;
   `;
 
@@ -58,9 +50,7 @@ export async function GET(req) {
       itemId: r.item_id,
       name: r.item_name,
       invCode: r.inv_code,
-      currentQty: r.current_qty,
       added: r.added,
-      removed: r.removed,
     });
   }
 

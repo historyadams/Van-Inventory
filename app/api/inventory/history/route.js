@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { getRole, sql } from '../../../../lib/db';
 import { parseDateRange } from '../../../../lib/reportDates';
 
+// Movement log for one van: every confirmed load in the date range, grouped by
+// the "Update completed" that confirmed it (rows from one confirmation share
+// the same timestamp because they're written in one transaction).
 export async function GET(req) {
   const role = await getRole();
   if (!role) {
@@ -19,36 +22,33 @@ export async function GET(req) {
     return NextResponse.json({ error }, { status: 400 });
   }
 
-  const stockRows = await sql`
-    SELECT i.id AS item_id, i.name, i.inv_code, vi.qty
-    FROM van_inventory vi
-    JOIN items i ON i.id = vi.item_id
-    WHERE vi.van_id = ${vanId}
-    ORDER BY i.name;
+  const rows = await sql`
+    SELECT h.completed_at, h.delta_applied, i.id AS item_id, i.name, i.inv_code
+    FROM update_history h
+    JOIN items i ON i.id = h.item_id
+    WHERE h.van_id = ${vanId}
+      AND h.delta_applied > 0
+      AND h.completed_at >= ${start}::date
+      AND h.completed_at < (${end}::date + INTERVAL '1 day')
+    ORDER BY h.completed_at DESC, i.name;
   `;
 
-  const historyRows = await sql`
-    SELECT item_id, delta_applied, completed_at
-    FROM update_history
-    WHERE van_id = ${vanId}
-      AND completed_at >= ${start}::date
-      AND completed_at < (${end}::date + INTERVAL '1 day')
-    ORDER BY completed_at DESC;
-  `;
-
-  const historyByItem = new Map();
-  for (const h of historyRows) {
-    if (!historyByItem.has(h.item_id)) historyByItem.set(h.item_id, []);
-    historyByItem.get(h.item_id).push({ delta: h.delta_applied, completedAt: h.completed_at });
+  const loads = [];
+  const byTime = new Map();
+  for (const r of rows) {
+    const key = new Date(r.completed_at).toISOString();
+    if (!byTime.has(key)) {
+      const load = { completedAt: r.completed_at, items: [] };
+      byTime.set(key, load);
+      loads.push(load);
+    }
+    byTime.get(key).items.push({
+      itemId: r.item_id,
+      name: r.name,
+      invCode: r.inv_code,
+      qty: r.delta_applied,
+    });
   }
 
-  const items = stockRows.map((r) => ({
-    itemId: r.item_id,
-    name: r.name,
-    invCode: r.inv_code,
-    currentQty: r.qty,
-    history: historyByItem.get(r.item_id) || [],
-  }));
-
-  return NextResponse.json({ items });
+  return NextResponse.json({ loads });
 }

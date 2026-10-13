@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { TopBar, SyncStatus, LogoutButton } from '../../components/TopBar';
+import { Tabs, Toast, DateRange, EmptyState, useDefaultRange } from '../../components/ui';
 
 const LOCATIONS = [
   { prefix: 'AH', name: 'Agoura Hills' },
@@ -9,51 +11,35 @@ const LOCATIONS = [
   { prefix: 'SD', name: 'San Diego' },
 ];
 
+const TABS = [
+  { key: 'incoming', label: 'Incoming' },
+  { key: 'locations', label: 'Locations' },
+  { key: 'items', label: 'Items' },
+  { key: 'reports', label: 'Reports' },
+];
+
 const POLL_MS = 4000;
 
 export default function ScPage() {
   const router = useRouter();
-  const [tab, setTab] = useState('inventory'); // 'inventory' | 'locations' | 'items' | 'reports'
+  const [tab, setTab] = useState('incoming');
   const [vans, setVans] = useState([]);
   const [vanId, setVanId] = useState('');
-  const [items, setItems] = useState([]);
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [completing, setCompleting] = useState(false);
-  const [toast, setToast] = useState('');
-  const [lastSynced, setLastSynced] = useState(null);
 
   const refreshVans = useCallback(async () => {
     const res = await fetch('/api/vans');
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setVans(data.vans || []);
     return data.vans || [];
   }, []);
 
   useEffect(() => {
     refreshVans().then((v) => {
-      if (v.length > 0) setVanId(String(v[0].id));
+      // Start on the first van that has something waiting, if any.
+      const first = v.find((van) => van.pendingItems > 0) || v[0];
+      if (first) setVanId(String(first.id));
     });
   }, [refreshVans]);
-
-  const loadItems = useCallback(async (id, opts) => {
-    const silent = opts && opts.silent;
-    if (!id) return;
-    if (!silent) setLoading(true);
-    const res = await fetch(`/api/inventory?van=${id}`);
-    const data = await res.json();
-    setItems(data.items || []);
-    setLastSynced(new Date());
-    if (!silent) setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (!vanId || tab !== 'inventory') return;
-    loadItems(vanId);
-    const interval = setInterval(() => loadItems(vanId, { silent: true }), POLL_MS);
-    return () => clearInterval(interval);
-  }, [vanId, tab, loadItems]);
 
   async function handleLogout() {
     await fetch('/api/logout', {
@@ -65,6 +51,67 @@ export default function ScPage() {
     router.refresh();
   }
 
+  return (
+    <main className="min-h-screen pb-16">
+      <TopBar
+        right={
+          <>
+            <SyncStatus />
+            <LogoutButton onClick={handleLogout} />
+          </>
+        }
+      />
+
+      <div className="max-w-[1040px] mx-auto px-4 pt-5">
+        <div className="panel px-4 sm:px-7 pt-4 pb-5">
+          <p className="section-title mb-3">Supply Chain</p>
+          <Tabs tabs={TABS} active={tab} onChange={setTab} />
+          <div className="divider my-4" />
+
+          {tab === 'incoming' ? (
+            <IncomingTab vans={vans} vanId={vanId} setVanId={setVanId} refreshVans={refreshVans} />
+          ) : tab === 'locations' ? (
+            <LocationsTab vans={vans} onChanged={refreshVans} />
+          ) : tab === 'items' ? (
+            <ItemsTab />
+          ) : (
+            <ReportsTab />
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [lastSynced, setLastSynced] = useState(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [toast, setToast] = useState('');
+
+  const loadItems = useCallback(async (id, opts) => {
+    const silent = opts && opts.silent;
+    if (!id) return;
+    if (!silent) setLoading(true);
+    const res = await fetch(`/api/inventory?van=${id}`);
+    const data = await res.json().catch(() => ({}));
+    setItems(data.items || []);
+    setLastSynced(new Date());
+    if (!silent) setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!vanId) return;
+    loadItems(vanId);
+    const interval = setInterval(() => {
+      loadItems(vanId, { silent: true });
+      refreshVans();
+    }, POLL_MS);
+    return () => clearInterval(interval);
+  }, [vanId, loadItems, refreshVans]);
+
   async function handleCompleteConfirmed() {
     setCompleting(true);
     const res = await fetch('/api/inventory/complete', {
@@ -74,218 +121,94 @@ export default function ScPage() {
     });
     setCompleting(false);
     setConfirmOpen(false);
-    if (res.ok) {
-      setToast('Update completed.');
-      loadItems(vanId);
-    } else {
-      setToast('Something went wrong. Try again.');
-    }
+    setToast(res.ok ? 'Update completed.' : 'Something went wrong. Try again.');
     setTimeout(() => setToast(''), 2500);
+    if (res.ok) {
+      loadItems(vanId);
+      refreshVans();
+    }
   }
 
-  const filteredItems = useMemo(() => {
-    if (!query.trim()) return items;
-    const q = query.trim().toLowerCase();
-    return items.filter((it) => it.name.toLowerCase().includes(q) || String(it.invCode).includes(q));
-  }, [items, query]);
-
-  const pendingCount = items.filter((it) => it.pendingDelta !== 0).length;
+  const pendingItems = items.filter((it) => it.pending > 0);
+  const pendingUnits = pendingItems.reduce((s, it) => s + it.pending, 0);
+  const vansWaiting = vans.filter((v) => v.pendingItems > 0).length;
 
   return (
-    <main className="min-h-screen bg-navy-50 pb-16">
-      <header className="bg-navy-900 text-white sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between gap-3">
-          <div>
-            <p className="font-mono text-[11px] tracking-[0.2em] text-white/50 uppercase">02 · Supply Chain</p>
-            <h1 className="font-display text-lg font-semibold">Van Stock</h1>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-white/60 hover:text-white border border-white/20 rounded-full px-3 py-1.5"
-          >
-            Log out
-          </button>
-        </div>
-        <div className="max-w-2xl mx-auto px-5 flex gap-1 text-sm">
-          <TabButton active={tab === 'inventory'} onClick={() => setTab('inventory')}>
-            Inventory
-          </TabButton>
-          <TabButton active={tab === 'locations'} onClick={() => setTab('locations')}>
-            Van Locations
-          </TabButton>
-          <TabButton active={tab === 'items'} onClick={() => setTab('items')}>
-            Manage Items
-          </TabButton>
-          <TabButton active={tab === 'reports'} onClick={() => setTab('reports')}>
-            Reports
-          </TabButton>
-        </div>
-      </header>
-
-      {tab === 'inventory' ? (
-        <InventoryTab
-          vans={vans}
-          vanId={vanId}
-          setVanId={setVanId}
-          items={filteredItems}
-          query={query}
-          setQuery={setQuery}
-          loading={loading}
-          pendingCount={pendingCount}
-          lastSynced={lastSynced}
-          onCompleteClick={() => setConfirmOpen(true)}
-        />
-      ) : tab === 'locations' ? (
-        <LocationsTab vans={vans} onChanged={refreshVans} />
-      ) : tab === 'items' ? (
-        <ItemsTab />
-      ) : (
-        <ReportsTab />
-      )}
-
-      {toast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
-          {toast}
-        </div>
-      )}
-
-      {confirmOpen && (
-        <ConfirmModal
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={handleCompleteConfirmed}
-          loading={completing}
-        />
-      )}
-    </main>
-  );
-}
-
-function TabButton({ active, onClick, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2.5 border-b-2 transition ${
-        active ? 'border-ember-600 text-white' : 'border-transparent text-white/50 hover:text-white/80'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function InventoryTab({
-  vans,
-  vanId,
-  setVanId,
-  items,
-  query,
-  setQuery,
-  loading,
-  pendingCount,
-  lastSynced,
-  onCompleteClick,
-}) {
-  return (
-    <div className="max-w-2xl mx-auto px-5 pt-5">
-      <div className="flex gap-3 mb-4">
-        <select
-          value={vanId}
-          onChange={(e) => setVanId(e.target.value)}
-          className="flex-1 rounded-lg border border-navy-900/15 bg-white px-3 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-        >
-          {vans.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.locationName} · {v.code}
-            </option>
-          ))}
-        </select>
-        <a
-          href={`/sc/audit?van=${vanId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 rounded-lg border border-navy-900/15 bg-white text-navy-900 text-sm font-medium px-3 py-2.5 hover:bg-navy-50 transition whitespace-nowrap"
-        >
-          Print Audit Sheet
-        </a>
+    <>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <p className="text-sm text-muted">
+          {vansWaiting === 0
+            ? 'No vans waiting on confirmation.'
+            : `${vansWaiting} van${vansWaiting === 1 ? '' : 's'} waiting on confirmation.`}
+        </p>
+        {lastSynced && <p className="text-[11px] text-dim shrink-0">live as of {lastSynced.toLocaleTimeString()}</p>}
       </div>
 
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Filter items or code..."
-        className="w-full rounded-lg border border-navy-900/15 bg-white px-4 py-2.5 text-sm mb-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-      />
-
-      {lastSynced && (
-        <p className="text-[11px] text-navy-900/35 mb-3 font-mono">
-          live as of {lastSynced.toLocaleTimeString()}
-        </p>
-      )}
+      <select value={vanId} onChange={(e) => setVanId(e.target.value)} aria-label="Van" className="input mb-4">
+        {vans.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.locationName} · {v.code}
+            {v.pendingItems > 0 ? `  (${v.pendingItems} waiting)` : ''}
+          </option>
+        ))}
+      </select>
 
       {loading ? (
-        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+        <EmptyState>Loading...</EmptyState>
+      ) : pendingItems.length === 0 ? (
+        <EmptyState>Nothing waiting for this van.</EmptyState>
       ) : (
         <ul className="space-y-2">
-          {items.map((it) => (
-            <li
-              key={it.itemId}
-              className="bg-white rounded-xl border border-navy-900/10 px-4 py-3 flex items-center gap-3"
-            >
+          {pendingItems.map((it) => (
+            <li key={it.itemId} className="tile px-3 py-2.5 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-navy-900 leading-snug">{it.name}</p>
-                <p className="text-[11px] font-mono text-navy-900/40">#{it.invCode}</p>
+                <p className="text-sm text-white leading-snug">{it.name}</p>
+                <p className="text-[11px] text-dim">#{it.invCode}</p>
               </div>
-              <span
-                className={`font-mono text-sm font-semibold w-12 text-right tabular-nums ${
-                  it.pendingDelta > 0 ? 'text-stock-up animate-flash' : 'text-transparent'
-                }`}
-              >
-                {it.pendingDelta > 0 ? `+${it.pendingDelta}` : '0'}
-              </span>
+              <span className="text-lg font-bold tabular-nums text-synced animate-flash">+{it.pending}</span>
             </li>
           ))}
-          {items.length === 0 && (
-            <p className="text-center text-navy-900/40 py-10 text-sm">No items match.</p>
-          )}
         </ul>
       )}
 
-      <div className="sticky bottom-0 mt-6 pb-6 pt-3 bg-gradient-to-t from-navy-50 via-navy-50">
-        <button
-          onClick={onCompleteClick}
-          disabled={pendingCount === 0}
-          className="w-full rounded-lg bg-navy-900 text-white font-medium py-3 hover:bg-ember-600 transition disabled:opacity-30"
-        >
-          Update completed{pendingCount ? ` (${pendingCount} item${pendingCount === 1 ? '' : 's'})` : ''}
+      <div className="mt-5">
+        <button onClick={() => setConfirmOpen(true)} disabled={pendingItems.length === 0} className="tile-hero">
+          Update completed
+          {pendingItems.length
+            ? ` (${pendingUnits} unit${pendingUnits === 1 ? '' : 's'}, ${pendingItems.length} item${
+                pendingItems.length === 1 ? '' : 's'
+              })`
+            : ''}
         </button>
       </div>
-    </div>
+
+      {confirmOpen && (
+        <ConfirmModal
+          title="Are you sure?"
+          body="This logs every addition shown right now as loaded into this van and clears the list. This cannot be undone."
+          confirmLabel={completing ? 'Updating...' : 'Yes, update'}
+          loading={completing}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={handleCompleteConfirmed}
+        />
+      )}
+      <Toast message={toast} />
+    </>
   );
 }
 
-function ConfirmModal({ onCancel, onConfirm, loading }) {
+function ConfirmModal({ title, body, confirmLabel, loading, onCancel, onConfirm, danger }) {
   return (
-    <div className="fixed inset-0 bg-navy-900/50 flex items-center justify-center px-6 z-20">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
-        <h2 className="font-display text-lg font-semibold text-navy-900">Are you sure?</h2>
-        <p className="text-sm text-navy-900/60 mt-2 leading-relaxed">
-          This will lock in every change shown right now and reset the pending numbers to zero.
-          This cannot be undone.
-        </p>
+    <div className="modal-backdrop">
+      <div className="card max-w-sm w-full p-6">
+        <h2 className="text-lg font-bold text-white">{title}</h2>
+        <p className="text-sm text-muted mt-2 leading-relaxed">{body}</p>
         <div className="mt-6 flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-lg border border-navy-900/15 text-navy-900 font-medium py-2.5 hover:bg-navy-50"
-          >
+          <button onClick={onCancel} className="btn-ghost flex-1">
             Cancel
           </button>
-          <button
-            onClick={onConfirm}
-            disabled={loading}
-            className="flex-1 rounded-lg bg-ember-600 text-white font-medium py-2.5 hover:bg-ember-700 disabled:opacity-50"
-          >
-            {loading ? 'Updating...' : 'Yes, update'}
+          <button onClick={onConfirm} disabled={loading} className={`${danger ? 'btn-danger' : 'btn-primary'} flex-1`}>
+            {confirmLabel}
           </button>
         </div>
       </div>
@@ -318,15 +241,16 @@ function LocationsTab({ vans, onChanged }) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-5 pt-5">
-      <p className="text-sm text-navy-900/60 mb-5 leading-relaxed">
-        Drag a van's code into the location it's actually parked at. This updates its first two
-        letters everywhere it's shown.
+    <>
+      <p className="text-sm text-muted mb-4 leading-relaxed">
+        Drag a van&apos;s code into the location it&apos;s actually parked at. This updates its first two letters
+        everywhere it&apos;s shown.
       </p>
 
-      <div className="grid sm:grid-cols-3 gap-4">
+      <div className="grid sm:grid-cols-3 gap-3">
         {LOCATIONS.map((loc) => {
           const vansHere = vans.filter((v) => v.prefix === loc.prefix);
+          const isOver = overPrefix === loc.prefix;
           return (
             <div
               key={loc.prefix}
@@ -339,14 +263,14 @@ function LocationsTab({ vans, onChanged }) {
                 e.preventDefault();
                 handleDrop(loc.prefix);
               }}
-              className={`rounded-2xl border-2 border-dashed p-4 min-h-[180px] transition ${
-                overPrefix === loc.prefix
-                  ? 'border-ember bg-ember-50'
-                  : 'border-navy-900/15 bg-white'
-              }`}
+              className="rounded-[10px] border-2 border-dashed p-4 min-h-[160px] transition"
+              style={{
+                borderColor: isOver ? 'rgba(239,64,35,0.6)' : 'var(--line)',
+                background: isOver ? 'rgba(239,64,35,0.08)' : 'var(--tile)',
+              }}
             >
-              <p className="font-display font-semibold text-navy-900 mb-1">{loc.name}</p>
-              <p className="font-mono text-[11px] text-navy-900/40 mb-3">{loc.prefix}</p>
+              <p className="font-bold text-white">{loc.name}</p>
+              <p className="section-title mb-3 mt-0.5">{loc.prefix}</p>
               <div className="flex flex-wrap gap-2">
                 {vansHere.map((v) => (
                   <div
@@ -354,28 +278,22 @@ function LocationsTab({ vans, onChanged }) {
                     draggable
                     onDragStart={() => setDragSuffix(v.suffix)}
                     onDragEnd={() => setDragSuffix(null)}
-                    className={`font-mono text-sm px-3 py-1.5 rounded-lg border border-navy-900/15 bg-navy-50 cursor-grab active:cursor-grabbing select-none ${
+                    className={`tile-btn !h-9 cursor-grab active:cursor-grabbing select-none ${
                       dragSuffix === v.suffix ? 'opacity-40' : ''
                     }`}
                   >
                     {v.suffix}
                   </div>
                 ))}
-                {vansHere.length === 0 && (
-                  <p className="text-xs text-navy-900/30 italic">Drop a van here</p>
-                )}
+                {vansHere.length === 0 && <p className="text-xs text-dim italic">Drop a van here</p>}
               </div>
             </div>
           );
         })}
       </div>
 
-      {toast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
-          {toast}
-        </div>
-      )}
-    </div>
+      <Toast message={toast} />
+    </>
   );
 }
 
@@ -394,7 +312,7 @@ function ItemsTab() {
   const loadItems = useCallback(async () => {
     setLoading(true);
     const res = await fetch('/api/items');
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setItems(data.items || []);
     setLoading(false);
   }, []);
@@ -402,6 +320,11 @@ function ItemsTab() {
   useEffect(() => {
     loadItems();
   }, [loadItems]);
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2500);
+  }
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -416,10 +339,9 @@ function ItemsTab() {
     setSaving(false);
 
     if (res.ok) {
+      showToast(`Added "${name.trim()}".`);
       setName('');
       setInvCode('');
-      setToast(`Added "${name.trim()}" to every van.`);
-      setTimeout(() => setToast(''), 2500);
       loadItems();
     } else {
       setError(data.error || 'Something went wrong. Try again.');
@@ -435,15 +357,9 @@ function ItemsTab() {
       body: JSON.stringify({ itemId: deleteTarget.itemId }),
     });
     setDeleting(false);
+    showToast(res.ok ? `Removed "${deleteTarget.name}".` : 'Something went wrong. Try again.');
     setDeleteTarget(null);
-    if (res.ok) {
-      setToast(`Removed "${deleteTarget.name}."`);
-      setTimeout(() => setToast(''), 2500);
-      loadItems();
-    } else {
-      setToast('Something went wrong. Try again.');
-      setTimeout(() => setToast(''), 2500);
-    }
+    if (res.ok) loadItems();
   }
 
   const filteredItems = items.filter((it) => {
@@ -453,25 +369,21 @@ function ItemsTab() {
   });
 
   return (
-    <div className="max-w-2xl mx-auto px-5 pt-5">
-      <p className="text-sm text-navy-900/60 mb-5 leading-relaxed">
-        Add a new item to track across every van, or remove one that's no longer stocked.
-        Adding an item creates a zeroed row for it on all 9 vans right away.
+    <>
+      <p className="text-sm text-muted mb-4 leading-relaxed">
+        Add a new item so it can be loaded into any van, or remove one that&apos;s no longer stocked.
       </p>
 
-      <form
-        onSubmit={handleAdd}
-        className="bg-white rounded-xl border border-navy-900/10 p-4 mb-6 space-y-3"
-      >
-        <h2 className="font-display font-semibold text-navy-900 text-sm">Add new item</h2>
-        <div className="flex gap-3">
+      <form onSubmit={handleAdd} className="tile p-4 mb-5 space-y-3">
+        <p className="section-title">Add new item</p>
+        <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Item name, e.g. Cyberpower Battery Backup"
             required
-            className="flex-1 rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="input flex-1"
           />
           <input
             type="number"
@@ -479,15 +391,11 @@ function ItemsTab() {
             onChange={(e) => setInvCode(e.target.value)}
             placeholder="Inv code"
             required
-            className="w-28 rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+            className="input sm:!w-32"
           />
         </div>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg bg-navy-900 text-white text-sm font-medium px-4 py-2 hover:bg-ember-600 transition disabled:opacity-50"
-        >
+        {error && <p className="text-xs text-primary">{error}</p>}
+        <button type="submit" disabled={saving} className="btn-primary">
           {saving ? 'Adding...' : 'Add item'}
         </button>
       </form>
@@ -497,86 +405,51 @@ function ItemsTab() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Filter items or code..."
-        className="w-full rounded-lg border border-navy-900/15 bg-white px-4 py-2.5 text-sm mb-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+        className="input mb-3"
       />
 
       {loading ? (
-        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+        <EmptyState>Loading...</EmptyState>
       ) : (
-        <ul className="space-y-2 pb-10">
+        <ul className="space-y-2">
           {filteredItems.map((it) => (
-            <li
-              key={it.itemId}
-              className="bg-white rounded-xl border border-navy-900/10 px-4 py-3 flex items-center gap-3"
-            >
+            <li key={it.itemId} className="tile px-3 py-2.5 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-navy-900 leading-snug">{it.name}</p>
-                <p className="text-[11px] font-mono text-navy-900/40">#{it.invCode}</p>
+                <p className="text-sm text-white leading-snug">{it.name}</p>
+                <p className="text-[11px] text-dim">#{it.invCode}</p>
               </div>
               <button
                 onClick={() => setDeleteTarget(it)}
-                className="text-xs text-red-600 border border-red-200 rounded-full px-3 py-1.5 hover:bg-red-50"
+                className="text-xs font-semibold text-primary border border-primary/40 rounded-full px-3 py-1.5 hover:bg-primary/10 transition"
               >
                 Remove
               </button>
             </li>
           ))}
-          {filteredItems.length === 0 && (
-            <p className="text-center text-navy-900/40 py-10 text-sm">No items match.</p>
-          )}
+          {filteredItems.length === 0 && <EmptyState>No items match.</EmptyState>}
         </ul>
       )}
 
-      {toast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
-          {toast}
-        </div>
-      )}
-
       {deleteTarget && (
-        <div className="fixed inset-0 bg-navy-900/50 flex items-center justify-center px-6 z-20">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
-            <h2 className="font-display text-lg font-semibold text-navy-900">Remove this item?</h2>
-            <p className="text-sm text-navy-900/60 mt-2 leading-relaxed">
-              "{deleteTarget.name}" will be removed from every van's inventory and its history.
-              This cannot be undone.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 rounded-lg border border-navy-900/15 text-navy-900 font-medium py-2.5 hover:bg-navy-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteConfirmed}
-                disabled={deleting}
-                className="flex-1 rounded-lg bg-red-600 text-white font-medium py-2.5 hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? 'Removing...' : 'Yes, remove'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          danger
+          title="Remove this item?"
+          body={`"${deleteTarget.name}" will be removed from the catalog along with its load history. This cannot be undone.`}
+          confirmLabel={deleting ? 'Removing...' : 'Yes, remove'}
+          loading={deleting}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteConfirmed}
+        />
       )}
-    </div>
+      <Toast message={toast} />
+    </>
   );
 }
 
-function toDateInputValue(date) {
-  return date.toISOString().slice(0, 10);
-}
-
 function ReportsTab() {
-  const today = useMemo(() => new Date(), []);
-  const weekAgo = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d;
-  }, []);
-
-  const [start, setStart] = useState(toDateInputValue(weekAgo));
-  const [end, setEnd] = useState(toDateInputValue(today));
+  const { today, weekAgo } = useDefaultRange();
+  const [start, setStart] = useState(weekAgo);
+  const [end, setEnd] = useState(today);
   const [lastExportedAt, setLastExportedAt] = useState(null);
   const [summary, setSummary] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -594,11 +467,8 @@ function ReportsTab() {
     setError('');
     const res = await fetch(`/api/reports/summary?start=${start}&end=${end}`);
     const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setSummary(data.vans || []);
-    } else {
-      setError(data.error || 'Something went wrong loading the summary.');
-    }
+    if (res.ok) setSummary(data.vans || []);
+    else setError(data.error || 'Something went wrong loading the summary.');
     setLoading(false);
   }, [start, end]);
 
@@ -621,87 +491,53 @@ function ReportsTab() {
     }, 1200);
   }
 
-  const totalMoves = summary.reduce((sum, v) => sum + v.moves.length, 0);
+  const totalMoves = useMemo(() => summary.reduce((sum, v) => sum + v.moves.length, 0), [summary]);
 
   return (
-    <div className="max-w-2xl mx-auto px-5 pt-5 pb-10">
-      <p className="text-sm text-navy-900/60 mb-5 leading-relaxed">
-        Pick a date range to see what moved into each van, and export it as a CSV for your
-        records.
+    <>
+      <p className="text-sm text-muted mb-4 leading-relaxed">
+        Pick a date range to see what was loaded into each van, and export it as a CSV for your records.
       </p>
 
-      <div className="bg-white rounded-xl border border-navy-900/10 p-4 mb-6 space-y-3">
-        <div className="flex gap-3">
-          <label className="flex-1 text-xs text-navy-900/60">
-            Start
-            <input
-              type="date"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              max={end}
-              className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-            />
-          </label>
-          <label className="flex-1 text-xs text-navy-900/60">
-            End
-            <input
-              type="date"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              min={start}
-              max={toDateInputValue(today)}
-              className="mt-1 w-full rounded-lg border border-navy-900/15 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-            />
-          </label>
-        </div>
-
+      <div className="tile p-4 mb-5 space-y-3">
+        <DateRange start={start} end={end} setStart={setStart} setEnd={setEnd} max={today} />
         <div className="flex items-center justify-between gap-3 pt-1">
-          <p className="text-[11px] text-navy-900/40 font-mono">
-            {lastExportedAt
-              ? `Last exported ${new Date(lastExportedAt).toLocaleString()}`
-              : 'No exports yet'}
+          <p className="text-[11px] text-dim">
+            {lastExportedAt ? `Last exported ${new Date(lastExportedAt).toLocaleString()}` : 'No exports yet'}
           </p>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="rounded-lg bg-navy-900 text-white text-sm font-medium px-4 py-2 hover:bg-ember-600 transition disabled:opacity-50 whitespace-nowrap"
-          >
+          <button onClick={handleExport} disabled={exporting} className="btn-primary whitespace-nowrap">
             {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
         </div>
       </div>
 
-      <h2 className="font-display font-semibold text-navy-900 text-sm mb-3">
-        Summary {totalMoves > 0 && !loading ? `(${totalMoves} transfer${totalMoves === 1 ? '' : 's'})` : ''}
-      </h2>
+      <p className="section-title mb-3">
+        Summary {totalMoves > 0 && !loading ? `· ${totalMoves} transfer${totalMoves === 1 ? '' : 's'}` : ''}
+      </p>
 
       {loading ? (
-        <p className="text-center text-navy-900/40 py-10 text-sm">Loading...</p>
+        <EmptyState>Loading...</EmptyState>
       ) : error ? (
-        <p className="text-center text-red-600 py-10 text-sm">{error}</p>
+        <EmptyState>{error}</EmptyState>
       ) : summary.length === 0 ? (
-        <p className="text-center text-navy-900/40 py-10 text-sm">
-          No transfers moved into any van in this date range.
-        </p>
+        <EmptyState>Nothing was loaded into any van in this date range.</EmptyState>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {summary.map((van) => (
-            <div key={van.vanId} className="bg-white rounded-xl border border-navy-900/10 p-4">
-              <p className="font-display font-semibold text-navy-900 text-sm mb-1">
+            <div key={van.vanId} className="tile p-3">
+              <p className="text-sm font-bold text-white">
                 {van.locationName} · {van.code}
               </p>
-              <ul className="divide-y divide-navy-900/5 mt-2">
+              <ul className="divide-y divide-white/5 mt-2">
                 {van.moves.map((m, i) => (
                   <li key={i} className="py-2 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-navy-900 leading-snug">{m.name}</p>
-                      <p className="text-[11px] font-mono text-navy-900/40">
+                      <p className="text-sm text-white leading-snug">{m.name}</p>
+                      <p className="text-[11px] text-dim">
                         #{m.invCode} · {new Date(m.completedAt).toLocaleString()}
                       </p>
                     </div>
-                    <span className="font-mono text-sm font-semibold text-stock-up whitespace-nowrap">
-                      +{m.delta}
-                    </span>
+                    <span className="text-sm font-bold tabular-nums text-synced whitespace-nowrap">+{m.delta}</span>
                   </li>
                 ))}
               </ul>
@@ -709,6 +545,6 @@ function ReportsTab() {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

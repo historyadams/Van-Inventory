@@ -1,57 +1,49 @@
-# Van Stock
+# Van Inventory Movement
 
-Tracks what moves between the warehouse and each of the 9 vans. Two shared logins:
+POS360 Supply Chain Ops tool for logging what gets loaded from the warehouse into each of the vans. It tracks **additions only**: vans are no longer treated as mini-warehouses with their own stock counts.
 
-- **Inventory Management** - adjusts item counts for a van with up/down arrows and submits the changes.
-- **Supply Chain** - watches those changes come in live, locks them in with "Update completed," and can drag vans between locations (Agoura Hills / Nor Cal / San Diego) to relabel them.
+## How it works
 
-Warehouse-wide inventory is intentionally out of scope - this only tracks the 9 vans as their own mini-warehouses.
+- **Landing page:** enter the Inventory Management password to go to the loading screen.
+- **Cog (upper right):** enter the Supply Chain password to go to the Supply Chain screen.
+- A login lasts 12 hours, so returning to the landing page during that time skips the password.
+
+### Inventory Management
+- Pick a van, tap **+** for each item loaded into it, then **Send**. The **−** button only fixes a mis-tap before sending and never goes below zero.
+- **History** shows everything confirmed as loaded into that van over a date range.
+- **All Vans** shows totals loaded into every van over a date range.
+
+### Supply Chain
+- **Incoming** watches additions arrive live (refreshes every 4 seconds) and shows which vans have something waiting. **Update completed** logs them as loaded and clears the list.
+- **Locations:** drag vans between Agoura Hills, Nor Cal and San Diego.
+- **Items:** add or remove catalog items.
+- **Reports:** view what was loaded into each van over a date range, and export it as CSV.
 
 ## How the numbers work
 
-- Every item, in every van, has a `qty` (the last confirmed count) and a `pending_delta` (net change since the last "Update completed").
-- The number shown on screen is always `qty + pending_delta` - the current best-known count.
-- Inventory Management's up/down arrows build a delta locally in the browser. Hitting **Submit changes** adds that delta into `pending_delta` in the database (an atomic increment per item, so two people submitting around the same time never overwrite each other).
-- Supply Chain polls the database every 4 seconds, so the flashing number is always within a few seconds of live.
-- **Update completed** runs one database transaction that logs what changed (`update_history` table) and folds `pending_delta` into `qty`, then zeroes it out. Because it's a single transaction reading the live values at the moment it runs, a submit that lands a split second earlier is still captured - nothing is lost.
+- Each van x item row has a `pending_delta`: additions sent by Inventory Management that Supply Chain hasn't confirmed yet. Sends are atomic increments, so two people sending at once never overwrite each other.
+- **Update completed** runs one database transaction that writes the pending additions to `update_history` (the movement log) and resets them to zero. Anything sent a split second before the click is still captured.
+- The old `qty` column is no longer read or written.
 
-## One-time setup
+## Setup
 
-### 1. Push this to GitHub and import it into Vercel
-Create a new repo, push this folder, then "Add New Project" in Vercel and import that repo.
-
-### 2. Add a Postgres database
-In your Vercel project: **Storage** tab -> **Create Database** -> choose the Postgres/Neon option -> connect it to this project. Vercel will automatically add a `DATABASE_URL` (or `POSTGRES_URL`) environment variable - you don't need to copy anything by hand.
-
-### 3. Set the login passwords and a session secret
-In **Project Settings -> Environment Variables**, add:
+### Environment variables (Vercel -> Project Settings -> Environment Variables)
 
 | Name | Value |
 |---|---|
-| `IM_PASSWORD` | `Payments123$` |
-| `SC_PASSWORD` | `Payments456&` |
-| `SESSION_SECRET` | any long random string |
+| `IM_PASSWORD` | Inventory Management password |
+| `SC_PASSWORD` | Supply Chain password |
+| `SESSION_SECRET` | a long random string (signs the login cookies) |
+| `SETUP_KEY` | any value; protects `/api/setup` and `/api/rename-vans` |
+| `DATABASE_URL` | added automatically when you connect Vercel Postgres/Neon |
 
-These already match what you asked for - they just live in Vercel's settings instead of the code, so you (or anyone with access to the project) can change either password later without touching a single file. Redeploy after adding them.
+Passwords are never stored in the code. If any of the first three are missing, login is disabled and shows an error. After changing them, redeploy.
 
-### 4. Seed the database (once)
-This loads the 9 vans, the 43-item catalog from `Van_Essentials.xlsx`, and a zeroed starting count for every van x item pair.
+### Database
+Visit `/api/setup?key=YOUR_SETUP_KEY` once (safe to re-run), or run `npm run seed` locally after `vercel env pull .env`.
 
-```bash
-npm install -g vercel        # if you don't have the Vercel CLI yet
-vercel link                  # connect this folder to your Vercel project
-vercel env pull .env         # pulls DATABASE_URL etc. into a local .env file
-npm install
-npm run seed
-```
-
-You'll see `Done.` printed at the end. This is safe to run again later - it won't duplicate anything.
-
-### 5. Visit the site
-Your Vercel URL will show the two login choices. Log in with either password and you're in.
-
-## Changing the item catalog or van list later
-Edit `lib/catalog.js` (item names/codes, van codes) and run `npm run seed` again - new rows will be added without disturbing existing counts.
+## Changing the item catalog or van list
+Use the **Items** tab in Supply Chain, or edit `lib/catalog.js` and re-run setup. New rows are added without disturbing existing history.
 
 ## Local development
 ```bash

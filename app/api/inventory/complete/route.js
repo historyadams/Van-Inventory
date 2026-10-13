@@ -12,21 +12,21 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Missing van id.' }, { status: 400 });
   }
 
-  // Both statements run as a single atomic transaction. Because the UPDATE reads
-  // pending_delta at the moment the transaction runs (not a value fetched earlier in
-  // JS), any change submitted a split second before this executes is still captured -
-  // nothing submitted right before the click gets lost.
+  // Both statements run as a single atomic transaction: the pending additions are
+  // written to the movement log, then cleared. Because this reads pending_delta at
+  // the moment the transaction runs (not a value fetched earlier in JS), anything
+  // submitted a split second before the click is still captured.
   await sql.transaction([
     sql`
       INSERT INTO update_history (van_id, item_id, delta_applied)
       SELECT van_id, item_id, pending_delta
       FROM van_inventory
-      WHERE van_id = ${vanId} AND pending_delta != 0;
+      WHERE van_id = ${vanId} AND pending_delta > 0;
     `,
     sql`
       UPDATE van_inventory
-      SET qty = qty + pending_delta, pending_delta = 0, updated_at = now()
-      WHERE van_id = ${vanId};
+      SET pending_delta = 0, updated_at = now()
+      WHERE van_id = ${vanId} AND pending_delta != 0;
     `,
   ]);
 

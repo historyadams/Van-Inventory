@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { sql, getRole } from '../../../../lib/db';
+import { sql, getScRole } from '../../../../lib/db';
 
 const VALID_PREFIXES = ['AH', 'NC', 'SD'];
 
 export async function POST(req) {
-  const role = await getRole();
+  const role = await getScRole();
   if (role !== 'sc') {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
   }

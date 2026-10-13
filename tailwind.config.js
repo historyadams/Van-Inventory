@@ -6,29 +6,21 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // POS360 "Supply Chain Ops" design tokens. The same values live as CSS
+      // variables on :root in app/globals.css.
       colors: {
-        navy: {
-          DEFAULT: '#1A1A2E',
-          50: '#F4F4F8',
-          100: '#E4E4EE',
-          700: '#2A2A45',
-          900: '#1A1A2E',
+        base: '#0A0A0B',
+        elev: '#0E0E11',
+        primary: {
+          DEFAULT: '#EF4023',
+          hover: '#D6371C',
         },
-        ember: {
-          DEFAULT: '#E8531A',
-          50: '#FEF1EC',
-          600: '#E8531A',
-          700: '#C4430F',
-        },
-        stock: {
-          up: '#1F9D55',
-          down: '#D64545',
-        },
+        muted: '#9CA3AF',
+        dim: '#6B7280',
+        synced: '#34D399',
       },
       fontFamily: {
-        display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
-        body: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+        sans: ['Figtree', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
       },
       keyframes: {
         pulseFlash: {
