@@ -9,15 +9,16 @@ POS360 Supply Chain Ops tool for logging what gets loaded from the warehouse int
 - A login lasts 12 hours, so returning to the landing page during that time skips the password.
 
 ### Inventory Management
-- Pick a van, tap **+** for each item loaded into it, then **Send**. The **−** button only fixes a mis-tap before sending and never goes below zero.
+- Pick a van, tap **+** for each item loaded into it, then **Send**. **Clear** wipes the unsent taps if you make a mistake.
 - **History** shows everything confirmed as loaded into that van over a date range.
 - **All Vans** shows totals loaded into every van over a date range.
 - **Print Audit Sheet / Print Multiple** prints blank count sheets (every item with an empty Count box) for one or more vans. Also available on the Supply Chain Incoming tab.
 
 ### Supply Chain
 - **Incoming** watches additions arrive live (refreshes every 4 seconds) and shows which vans have something waiting. **Update completed** logs them as loaded and clears the list.
+- **Update all vans & print summary** confirms every waiting van at once and opens a printable Van Load Summary of exactly what was confirmed.
 - **Locations:** drag vans between Agoura Hills, Nor Cal and San Diego.
-- **Items:** add or remove catalog items.
+- **Items:** add or remove catalog items. Two items can share an inventory code after a warning prompt; shared codes show in yellow everywhere so they can be double-checked.
 - **Reports:** view what was loaded into each van over a date range, and export it as CSV.
 
 ## How the numbers work

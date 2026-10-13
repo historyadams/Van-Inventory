@@ -18,11 +18,22 @@ export function PlusIcon({ size = 16 }) {
   );
 }
 
-export function MinusIcon({ size = 16 }) {
+function MinusIcon({ size = 16 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M19 13H5v-2h14v2z" />
     </svg>
+  );
+}
+
+// Item code, shown in yellow when another item shares the same code so it
+// can be double-checked.
+export function CodeTag({ code, dup }) {
+  if (!dup) return <span>#{code}</span>;
+  return (
+    <span className="font-semibold" style={{ color: '#FACC15' }} title="Another item shares this code">
+      #{code}
+    </span>
   );
 }
 

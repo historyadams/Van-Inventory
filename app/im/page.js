@@ -8,7 +8,7 @@ import {
   Tabs,
   Toast,
   PlusIcon,
-  MinusIcon,
+  CodeTag,
   DateRange,
   EmptyState,
   useDefaultRange,
@@ -112,7 +112,6 @@ function LoadTab({ vanId }) {
     setTimeout(() => setToast(''), 2500);
   }
 
-  // Minus only corrects a mis-tap before submitting - it never goes below zero.
   function change(itemId, dir) {
     setAdds((prev) => ({ ...prev, [itemId]: Math.max(0, (prev[itemId] || 0) + dir) }));
   }
@@ -176,21 +175,13 @@ function LoadTab({ vanId }) {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white leading-snug">{it.name}</p>
                   <p className="text-[11px] text-dim">
-                    #{it.invCode}
+                    <CodeTag code={it.invCode} dup={it.dupCode} />
                     {it.pending > 0 && (
                       <span className="ml-2 text-primary font-semibold">{it.pending} awaiting confirmation</span>
                     )}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    aria-label={`Remove one ${it.name}`}
-                    onClick={() => change(it.itemId, -1)}
-                    disabled={qty === 0}
-                    className="tile-btn !h-9 !w-9 !p-0"
-                  >
-                    <MinusIcon />
-                  </button>
                   <span
                     className={`w-8 text-center text-lg font-bold tabular-nums ${qty > 0 ? 'text-primary' : 'text-dim'}`}
                   >
@@ -215,7 +206,12 @@ function LoadTab({ vanId }) {
         className="fixed bottom-0 inset-x-0 z-20 px-4 py-4"
         style={{ background: 'rgba(14,14,17,0.9)', borderTop: '1px solid var(--line)', backdropFilter: 'blur(14px)' }}
       >
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto flex gap-2">
+          {lineCount > 0 && !submitting && (
+            <button onClick={() => setAdds({})} className="btn-ghost !h-[54px] shrink-0">
+              Clear
+            </button>
+          )}
           <button onClick={handleSubmit} disabled={submitting || lineCount === 0} className="tile-hero">
             {submitting
               ? 'Sending...'

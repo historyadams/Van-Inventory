@@ -52,7 +52,7 @@ export async function GET(request) {
       CREATE TABLE IF NOT EXISTS items (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
-        inv_code INTEGER NOT NULL UNIQUE
+        inv_code INTEGER NOT NULL
       );
     `;
 
@@ -97,8 +97,9 @@ export async function GET(request) {
     log.push('Seeding items...');
     for (const [name, invCode] of ITEMS) {
       await sql`
-        INSERT INTO items (name, inv_code) VALUES (${name}, ${invCode})
-        ON CONFLICT (inv_code) DO NOTHING;
+        INSERT INTO items (name, inv_code)
+        SELECT ${name}, ${invCode}
+        WHERE NOT EXISTS (SELECT 1 FROM items WHERE inv_code = ${invCode});
       `;
     }
 

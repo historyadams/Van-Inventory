@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { sql, getRole, getScRole } from '../../../lib/db';
 
-// Anyone logged in (IM or SC) can view the catalog.
+// Anyone logged in (IM or SC) can view the catalog. dupCode is true when
+// another item shares the same inventory code.
 export async function GET() {
   const role = await getRole();
   if (!role) {
@@ -9,23 +10,30 @@ export async function GET() {
   }
 
   const rows = await sql`
-    SELECT id, name, inv_code FROM items ORDER BY name;
+    SELECT i.id, i.name, i.inv_code,
+      (SELECT COUNT(*) FROM items i2 WHERE i2.inv_code = i.inv_code) > 1 AS dup_code
+    FROM items i
+    ORDER BY i.name;
   `;
 
-  const items = rows.map((r) => ({ itemId: r.id, name: r.name, invCode: r.inv_code }));
+  const items = rows.map((r) => ({ itemId: r.id, name: r.name, invCode: r.inv_code, dupCode: r.dup_code }));
   return NextResponse.json({ items });
 }
 
 // Only SC can add a new catalog item. Adding an item automatically creates a
-// zeroed van_inventory row for every existing van so it shows up (at 0) for
-// every van right away.
+// van_inventory row for every existing van so it can be loaded into any van.
+//
+// Inventory codes may be shared by more than one item (e.g. two 360 Pro
+// builds), but only after the user confirms: the first request returns 409
+// with `duplicate: true` and the names already using the code, and the client
+// resends with `confirmDuplicate: true`.
 export async function POST(req) {
   const role = await getScRole();
   if (role !== 'sc') {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
   }
 
-  const { name, invCode } = await req.json().catch(() => ({}));
+  const { name, invCode, confirmDuplicate } = await req.json().catch(() => ({}));
   const trimmedName = (name || '').trim();
   const code = Number(invCode);
 
@@ -36,9 +44,24 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Inventory code must be a positive whole number.' }, { status: 400 });
   }
 
-  const existing = await sql`SELECT id FROM items WHERE inv_code = ${code};`;
+  const existing = await sql`SELECT id, name FROM items WHERE inv_code = ${code} ORDER BY name;`;
+  if (existing.some((r) => r.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
+    return NextResponse.json(
+      { error: `"${trimmedName}" already exists with code #${code}.` },
+      { status: 409 }
+    );
+  }
+  if (existing.length > 0 && !confirmDuplicate) {
+    return NextResponse.json(
+      { duplicate: true, code, existingNames: existing.map((r) => r.name) },
+      { status: 409 }
+    );
+  }
+
+  // Older databases were created with inv_code UNIQUE; drop it so shared
+  // codes are allowed. No-op once it's gone.
   if (existing.length > 0) {
-    return NextResponse.json({ error: `Inventory code #${code} is already in use.` }, { status: 409 });
+    await sql`ALTER TABLE items DROP CONSTRAINT IF EXISTS items_inv_code_key;`;
   }
 
   const [newItem] = await sql`

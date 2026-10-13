@@ -16,7 +16,8 @@ export async function GET(req) {
   }
 
   const rows = await sql`
-    SELECT i.id AS item_id, i.name, i.inv_code, vi.pending_delta
+    SELECT i.id AS item_id, i.name, i.inv_code, vi.pending_delta,
+      (SELECT COUNT(*) FROM items i2 WHERE i2.inv_code = i.inv_code) > 1 AS dup_code
     FROM items i
     JOIN van_inventory vi ON vi.item_id = i.id
     WHERE vi.van_id = ${vanId}
@@ -28,6 +29,7 @@ export async function GET(req) {
     name: r.name,
     invCode: r.inv_code,
     pending: Math.max(0, r.pending_delta),
+    dupCode: r.dup_code,
   }));
 
   return NextResponse.json({ items });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopBar, SyncStatus, LogoutButton } from '../../components/TopBar';
 import { AuditButtons } from '../../components/AuditButtons';
-import { Tabs, Toast, DateRange, EmptyState, useDefaultRange } from '../../components/ui';
+import { Tabs, Toast, DateRange, EmptyState, useDefaultRange, CodeTag } from '../../components/ui';
 
 const LOCATIONS = [
   { prefix: 'AH', name: 'Agoura Hills' },
@@ -91,6 +91,9 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [toast, setToast] = useState('');
+  const [allOpen, setAllOpen] = useState(false);
+  const [completingAll, setCompletingAll] = useState(false);
+  const router = useRouter();
 
   const loadItems = useCallback(async (id, opts) => {
     const silent = opts && opts.silent;
@@ -130,6 +133,24 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
     }
   }
 
+  // Confirms every van at once, then opens a printable summary of exactly
+  // what was just confirmed.
+  async function handleCompleteAllConfirmed() {
+    setCompletingAll(true);
+    const res = await fetch('/api/inventory/complete-all', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    setCompletingAll(false);
+    setAllOpen(false);
+    if (res.ok && data.batchAt) {
+      router.push(`/sc/summary?at=${encodeURIComponent(data.batchAt)}`);
+    } else {
+      setToast(res.ok ? 'Nothing was waiting.' : 'Something went wrong. Try again.');
+      setTimeout(() => setToast(''), 2500);
+      refreshVans();
+      loadItems(vanId);
+    }
+  }
+
   const pendingItems = items.filter((it) => it.pending > 0);
   const pendingUnits = pendingItems.reduce((s, it) => s + it.pending, 0);
   const vansWaiting = vans.filter((v) => v.pendingItems > 0).length;
@@ -144,6 +165,10 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
         </p>
         {lastSynced && <p className="text-[11px] text-dim shrink-0">live as of {lastSynced.toLocaleTimeString()}</p>}
       </div>
+
+      <button onClick={() => setAllOpen(true)} disabled={vansWaiting === 0} className="tile-hero mb-4">
+        Update all vans{vansWaiting ? ` (${vansWaiting} waiting)` : ''} &amp; print summary
+      </button>
 
       <select value={vanId} onChange={(e) => setVanId(e.target.value)} aria-label="Van" className="input mb-2">
         {vans.map((v) => (
@@ -167,7 +192,9 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
             <li key={it.itemId} className="tile px-3 py-2.5 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-white leading-snug">{it.name}</p>
-                <p className="text-[11px] text-dim">#{it.invCode}</p>
+                <p className="text-[11px] text-dim">
+                  <CodeTag code={it.invCode} dup={it.dupCode} />
+                </p>
               </div>
               <span className="text-lg font-bold tabular-nums text-synced animate-flash">+{it.pending}</span>
             </li>
@@ -186,6 +213,16 @@ function IncomingTab({ vans, vanId, setVanId, refreshVans }) {
         </button>
       </div>
 
+      {allOpen && (
+        <ConfirmModal
+          title="Update all vans?"
+          body={`This logs every pending addition on all ${vansWaiting} waiting van${vansWaiting === 1 ? '' : 's'} as loaded and clears them, then shows a printable summary. This cannot be undone.`}
+          confirmLabel={completingAll ? 'Updating...' : 'Yes, update all'}
+          loading={completingAll}
+          onCancel={() => setAllOpen(false)}
+          onConfirm={handleCompleteAllConfirmed}
+        />
+      )}
       {confirmOpen && (
         <ConfirmModal
           title="Are you sure?"
@@ -312,6 +349,7 @@ function ItemsTab() {
   const [toast, setToast] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [dupPrompt, setDupPrompt] = useState(null); // { code, existingNames }
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -330,26 +368,35 @@ function ItemsTab() {
     setTimeout(() => setToast(''), 2500);
   }
 
-  async function handleAdd(e) {
-    e.preventDefault();
+  // First attempt never creates a shared code silently: the server answers
+  // `duplicate: true` and we ask before resending with confirmDuplicate.
+  async function addItem(confirmDuplicate) {
     setError('');
     setSaving(true);
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, invCode }),
+      body: JSON.stringify({ name, invCode, confirmDuplicate }),
     });
     const data = await res.json().catch(() => ({}));
     setSaving(false);
+    setDupPrompt(null);
 
     if (res.ok) {
       showToast(`Added "${name.trim()}".`);
       setName('');
       setInvCode('');
       loadItems();
+    } else if (data.duplicate) {
+      setDupPrompt(data);
     } else {
       setError(data.error || 'Something went wrong. Try again.');
     }
+  }
+
+  function handleAdd(e) {
+    e.preventDefault();
+    addItem(false);
   }
 
   async function handleDeleteConfirmed() {
@@ -420,7 +467,9 @@ function ItemsTab() {
             <li key={it.itemId} className="tile px-3 py-2.5 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-white leading-snug">{it.name}</p>
-                <p className="text-[11px] text-dim">#{it.invCode}</p>
+                <p className="text-[11px] text-dim">
+                  <CodeTag code={it.invCode} dup={it.dupCode} />
+                </p>
               </div>
               <button
                 onClick={() => setDeleteTarget(it)}
@@ -443,6 +492,18 @@ function ItemsTab() {
           loading={deleting}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={handleDeleteConfirmed}
+        />
+      )}
+      {dupPrompt && (
+        <ConfirmModal
+          title="Duplicate item number"
+          body={`#${dupPrompt.code} is already used by ${dupPrompt.existingNames
+            .map((n) => `"${n}"`)
+            .join(', ')}. You are about to create a duplicate item number. Do you wish to continue? Shared numbers show in yellow.`}
+          confirmLabel={saving ? 'Adding...' : 'Yes, continue'}
+          loading={saving}
+          onCancel={() => setDupPrompt(null)}
+          onConfirm={() => addItem(true)}
         />
       )}
       <Toast message={toast} />
