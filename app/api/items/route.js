@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sql, getRole, getScRole } from '../../../lib/db';
+import { ensureCategories } from '../../../lib/schema';
+import { CATEGORY_KEYS, suggestCategory } from '../../../lib/categories';
 
 // Anyone logged in (IM or SC) can view the catalog. dupCode is true when
 // another item shares the same inventory code.
@@ -9,14 +11,16 @@ export async function GET() {
     return NextResponse.json({ error: 'Not logged in.' }, { status: 401 });
   }
 
+  await ensureCategories();
+
   const rows = await sql`
-    SELECT i.id, i.name, i.inv_code,
+    SELECT i.id, i.name, i.inv_code, i.category,
       (SELECT COUNT(*) FROM items i2 WHERE i2.inv_code = i.inv_code) > 1 AS dup_code
     FROM items i
     ORDER BY i.name;
   `;
 
-  const items = rows.map((r) => ({ itemId: r.id, name: r.name, invCode: r.inv_code, dupCode: r.dup_code }));
+  const items = rows.map((r) => ({ itemId: r.id, name: r.name, invCode: r.inv_code, dupCode: r.dup_code, category: r.category }));
   return NextResponse.json({ items });
 }
 
@@ -33,7 +37,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
   }
 
-  const { name, invCode, confirmDuplicate } = await req.json().catch(() => ({}));
+  const { name, invCode, confirmDuplicate, category } = await req.json().catch(() => ({}));
   const trimmedName = (name || '').trim();
   const code = Number(invCode);
 
@@ -43,6 +47,9 @@ export async function POST(req) {
   if (!Number.isInteger(code) || code <= 0) {
     return NextResponse.json({ error: 'Inventory code must be a positive whole number.' }, { status: 400 });
   }
+
+  const cat = CATEGORY_KEYS.includes(category) ? category : suggestCategory(trimmedName, code);
+  await ensureCategories();
 
   const existing = await sql`SELECT id, name FROM items WHERE inv_code = ${code} ORDER BY name;`;
   if (existing.some((r) => r.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
@@ -65,7 +72,7 @@ export async function POST(req) {
   }
 
   const [newItem] = await sql`
-    INSERT INTO items (name, inv_code) VALUES (${trimmedName}, ${code})
+    INSERT INTO items (name, inv_code, category) VALUES (${trimmedName}, ${code}, ${cat})
     RETURNING id;
   `;
 
@@ -76,6 +83,24 @@ export async function POST(req) {
   `;
 
   return NextResponse.json({ ok: true, itemId: newItem.id });
+}
+
+// Only SC can change an item's category (e.g. move an Atypical item into a
+// regular category once it starts going into vans).
+export async function PATCH(req) {
+  const role = await getScRole();
+  if (role !== 'sc') {
+    return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+  }
+
+  const { itemId, category } = await req.json().catch(() => ({}));
+  if (!itemId || !CATEGORY_KEYS.includes(category)) {
+    return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
+  }
+
+  await ensureCategories();
+  await sql`UPDATE items SET category = ${category} WHERE id = ${itemId};`;
+  return NextResponse.json({ ok: true });
 }
 
 // Only SC can remove a catalog item. This permanently removes it from every

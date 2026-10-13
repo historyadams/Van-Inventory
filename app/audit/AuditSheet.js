@@ -1,6 +1,8 @@
 // Blank count sheet for one van: every catalog item with an empty box for the
 // technician to write what's actually in the van. Always printed on white.
-export function AuditSheet({ van, items, today, pageBreakAfter }) {
+export function AuditSheet({ van, items: allItems, today, pageBreakAfter }) {
+  // Atypical items (warehouse-only stock) stay off the count sheet.
+  const items = allItems.filter((it) => it.category !== 'atypical');
   const half = Math.ceil(items.length / 2);
   const firstHalf = items.slice(0, half);
   const secondHalf = items.slice(half);

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopBar, SyncStatus, LogoutButton } from '../../components/TopBar';
 import { AuditButtons } from '../../components/AuditButtons';
-import { Tabs, Toast, DateRange, EmptyState, useDefaultRange, CodeTag } from '../../components/ui';
+import { Tabs, Toast, DateRange, EmptyState, useDefaultRange, CodeTag, CategoryFilters } from '../../components/ui';
+import { CATEGORIES, categoryLabel, filterItems, suggestCategory } from '../../lib/categories';
 
 const LOCATIONS = [
   { prefix: 'AH', name: 'Agoura Hills' },
@@ -342,8 +343,10 @@ function ItemsTab() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(() => new Set()); // category filter keys
   const [name, setName] = useState('');
   const [invCode, setInvCode] = useState('');
+  const [category, setCategory] = useState(''); // '' = use the suggestion
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -368,6 +371,9 @@ function ItemsTab() {
     setTimeout(() => setToast(''), 2500);
   }
 
+  // Pre-picked from the leading number until the user chooses one.
+  const effectiveCategory = category || suggestCategory(name, invCode);
+
   // First attempt never creates a shared code silently: the server answers
   // `duplicate: true` and we ask before resending with confirmDuplicate.
   async function addItem(confirmDuplicate) {
@@ -376,16 +382,17 @@ function ItemsTab() {
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, invCode, confirmDuplicate }),
+      body: JSON.stringify({ name, invCode, confirmDuplicate, category: effectiveCategory }),
     });
     const data = await res.json().catch(() => ({}));
     setSaving(false);
     setDupPrompt(null);
 
     if (res.ok) {
-      showToast(`Added "${name.trim()}".`);
+      showToast(`Added "${name.trim()}" to ${categoryLabel(effectiveCategory)}.`);
       setName('');
       setInvCode('');
+      setCategory('');
       loadItems();
     } else if (data.duplicate) {
       setDupPrompt(data);
@@ -397,6 +404,17 @@ function ItemsTab() {
   function handleAdd(e) {
     e.preventDefault();
     addItem(false);
+  }
+
+  async function changeCategory(item, next) {
+    setItems((prev) => prev.map((it) => (it.itemId === item.itemId ? { ...it, category: next } : it)));
+    const res = await fetch('/api/items', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId: item.itemId, category: next }),
+    });
+    showToast(res.ok ? `Moved "${item.name}" to ${categoryLabel(next)}.` : 'Something went wrong. Try again.');
+    if (!res.ok) loadItems();
   }
 
   async function handleDeleteConfirmed() {
@@ -413,16 +431,13 @@ function ItemsTab() {
     if (res.ok) loadItems();
   }
 
-  const filteredItems = items.filter((it) => {
-    if (!query.trim()) return true;
-    const q = query.trim().toLowerCase();
-    return it.name.toLowerCase().includes(q) || String(it.invCode).includes(q);
-  });
+  const filteredItems = useMemo(() => filterItems(items, { selected, query }), [items, selected, query]);
 
   return (
     <>
       <p className="text-sm text-muted mb-4 leading-relaxed">
-        Add a new item so it can be loaded into any van, or remove one that&apos;s no longer stocked.
+        Add a new item so it can be loaded into any van, change an item&apos;s category, or remove one that&apos;s no
+        longer stocked.
       </p>
 
       <form onSubmit={handleAdd} className="tile p-4 mb-5 space-y-3">
@@ -445,6 +460,16 @@ function ItemsTab() {
             className="input sm:!w-32"
           />
         </div>
+        <label className="block text-xs text-muted">
+          Category{category ? '' : ' (picked from the item number - change if needed)'}
+          <select value={effectiveCategory} onChange={(e) => setCategory(e.target.value)} className="input mt-1">
+            {CATEGORIES.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
         {error && <p className="text-xs text-primary">{error}</p>}
         <button type="submit" disabled={saving} className="btn-primary">
           {saving ? 'Adding...' : 'Add item'}
@@ -455,28 +480,45 @@ function ItemsTab() {
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Filter items or code..."
+        placeholder="Search all items or code..."
         className="input mb-3"
       />
+      <div className="mb-4">
+        <CategoryFilters categories={CATEGORIES} selected={selected} onChange={setSelected} />
+      </div>
 
       {loading ? (
         <EmptyState>Loading...</EmptyState>
       ) : (
         <ul className="space-y-2">
           {filteredItems.map((it) => (
-            <li key={it.itemId} className="tile px-3 py-2.5 flex items-center gap-3">
+            <li key={it.itemId} className="tile px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-white leading-snug">{it.name}</p>
                 <p className="text-[11px] text-dim">
                   <CodeTag code={it.invCode} dup={it.dupCode} />
                 </p>
               </div>
-              <button
-                onClick={() => setDeleteTarget(it)}
-                className="text-xs font-semibold text-primary border border-primary/40 rounded-full px-3 py-1.5 hover:bg-primary/10 transition"
-              >
-                Remove
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  value={it.category || 'atypical'}
+                  onChange={(e) => changeCategory(it, e.target.value)}
+                  aria-label={`Category for ${it.name}`}
+                  className="input !py-1.5 !text-xs !w-auto"
+                >
+                  {CATEGORIES.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setDeleteTarget(it)}
+                  className="text-xs font-semibold text-primary border border-primary/40 rounded-full px-3 py-1.5 hover:bg-primary/10 transition"
+                >
+                  Remove
+                </button>
+              </div>
             </li>
           ))}
           {filteredItems.length === 0 && <EmptyState>No items match.</EmptyState>}

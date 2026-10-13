@@ -9,10 +9,12 @@ import {
   Toast,
   PlusIcon,
   CodeTag,
+  CategoryFilters,
   DateRange,
   EmptyState,
   useDefaultRange,
 } from '../../components/ui';
+import { CATEGORIES, filterItems } from '../../lib/categories';
 
 const TABS = [
   { key: 'load', label: 'Load Van' },
@@ -89,6 +91,7 @@ function LoadTab({ vanId }) {
   const [items, setItems] = useState([]);
   const [adds, setAdds] = useState({}); // itemId -> qty being added this session
   const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(() => new Set()); // category filter keys
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState('');
@@ -138,11 +141,12 @@ function LoadTab({ vanId }) {
     }
   }
 
-  const filteredItems = useMemo(() => {
-    if (!query.trim()) return items;
-    const q = query.trim().toLowerCase();
-    return items.filter((it) => it.name.toLowerCase().includes(q) || String(it.invCode).includes(q));
-  }, [items, query]);
+  // Items with unsent taps or awaiting confirmation stay visible whatever the
+  // filters, so nothing disappears mid-load.
+  const filteredItems = useMemo(
+    () => filterItems(items, { selected, query, keep: (it) => (adds[it.itemId] || 0) > 0 || it.pending > 0 }),
+    [items, selected, query, adds]
+  );
 
   const lineCount = Object.values(adds).filter((q) => q > 0).length;
   const unitCount = Object.values(adds).reduce((s, q) => s + q, 0);
@@ -157,9 +161,12 @@ function LoadTab({ vanId }) {
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Filter items or code..."
+        placeholder="Search all items or code..."
         className="input mb-3"
       />
+      <div className="mb-4">
+        <CategoryFilters categories={CATEGORIES} selected={selected} onChange={setSelected} />
+      </div>
 
       {loading ? (
         <EmptyState>Loading...</EmptyState>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql, getRole } from '../../../lib/db';
+import { ensureCategories } from '../../../lib/schema';
 
 // Item list for one van, with how many of each have been submitted by
 // Inventory Management but not yet confirmed by Supply Chain. Van stock
@@ -15,8 +16,10 @@ export async function GET(req) {
     return NextResponse.json({ error: 'Missing van id.' }, { status: 400 });
   }
 
+  await ensureCategories();
+
   const rows = await sql`
-    SELECT i.id AS item_id, i.name, i.inv_code, vi.pending_delta,
+    SELECT i.id AS item_id, i.name, i.inv_code, vi.pending_delta, i.category,
       (SELECT COUNT(*) FROM items i2 WHERE i2.inv_code = i.inv_code) > 1 AS dup_code
     FROM items i
     JOIN van_inventory vi ON vi.item_id = i.id
@@ -30,6 +33,7 @@ export async function GET(req) {
     invCode: r.inv_code,
     pending: Math.max(0, r.pending_delta),
     dupCode: r.dup_code,
+    category: r.category,
   }));
 
   return NextResponse.json({ items });

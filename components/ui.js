@@ -103,3 +103,27 @@ export function DateRange({ start, end, setStart, setEnd, max }) {
 export function EmptyState({ children }) {
   return <p className="text-center text-dim py-10 text-sm">{children}</p>;
 }
+
+// Multi-select category filter buttons. `selected` is a Set of category keys.
+export function CategoryFilters({ categories, selected, onChange }) {
+  function toggle(key) {
+    const next = new Set(selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange(next);
+  }
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {categories.map((c) => (
+        <button
+          key={c.key}
+          onClick={() => toggle(c.key)}
+          aria-pressed={selected.has(c.key)}
+          className={`tile-btn !h-10 !px-2 !text-[12px] ${selected.has(c.key) ? 'is-active' : ''}`}
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+}
