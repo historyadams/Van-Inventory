@@ -142,11 +142,9 @@ function LoadTab({ vanId }) {
     }
   }
 
-  // Items with unsent taps or awaiting confirmation stay visible whatever the
-  // filters, so nothing disappears mid-load.
   const filteredItems = useMemo(
-    () => filterItems(items, { selected, query, keep: (it) => (adds[it.itemId] || 0) > 0 || it.pending > 0 }),
-    [items, selected, query, adds]
+    () => filterItems(items, { selected, query }),
+    [items, selected, query]
   );
   const groups = useMemo(() => groupByCategory(filteredItems), [filteredItems]);
   const counts = useMemo(() => countByCategory(items), [items]);

@@ -112,6 +112,14 @@ body {
     border-color: rgba(239, 64, 35, 0.45);
     color: var(--text);
   }
+  /* Filter buttons that are on: solid, so it is obvious what is filtering */
+  .tile-btn.is-on,
+  .tile-btn.is-on:hover:not(:disabled) {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 700;
+  }
 
   .tile-hero {
     display: flex;

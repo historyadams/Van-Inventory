@@ -122,7 +122,7 @@ export function CategoryFilters({ categories, selected, onChange, counts = {}, s
             key={c.key}
             onClick={() => toggle(c.key)}
             aria-pressed={selected.has(c.key)}
-            className={`tile-btn !h-10 !px-2 !text-[12px] ${selected.has(c.key) ? 'is-active' : ''}`}
+            className={`tile-btn !h-10 !px-2 !text-[12px] ${selected.has(c.key) ? 'is-on' : ''}`}
           >
             {c.label}
             <span className="opacity-60 tabular-nums">· {counts[c.key] || 0}</span>
@@ -132,7 +132,12 @@ export function CategoryFilters({ categories, selected, onChange, counts = {}, s
       <div className="flex items-center justify-between mt-2 text-[11px] text-dim">
         <span>
           {shown !== undefined && `Showing ${shown} item${shown === 1 ? '' : 's'}`}
-          {selected.size === 0 && ' · Atypical hidden unless searching'}
+          {selected.size > 0
+            ? ` in ${categories
+                .filter((c) => selected.has(c.key))
+                .map((c) => c.label)
+                .join(', ')}`
+            : ' · Atypical hidden unless searching'}
         </span>
         {selected.size > 0 && (
           <button onClick={() => onChange(new Set())} className="text-primary font-semibold hover:underline">
