@@ -11,10 +11,10 @@ POS360 Supply Chain Ops tool for logging what gets loaded from the warehouse int
 ### Categories
 Items are grouped into Drawers & Mounts (1xxx), Printers (2xxx), Payment Terminals (3xxx PAX), Hardware & Network (other 3xxx), 360 Systems (9xxx) and Atypical. Atypical holds the items from InventorySnapshot.xlsx that weren't in the app before (imported automatically once, see `lib/schema.js`).
 
-- Filter buttons on Load Van and Items are multi-select. With none on, everything except Atypical shows.
+- Filter buttons on Load Van and Items are multi-select and show how many items each holds. With none on, everything except Atypical shows. Lists are grouped under category headings.
 - Atypical items only show when their button is on, or when searching (search always covers every item).
 - Atypical items stay off the printed audit sheets.
-- New items get a category picked from their leading number, which can be changed when adding or later in the Items tab.
+- New items get a category picked from their leading number, which can be changed when adding or later with Edit in the Items tab.
 
 ### Inventory Management
 - Pick a van, tap **+** for each item loaded into it, then **Send**. **Clear** wipes the unsent taps if you make a mistake.
@@ -26,7 +26,7 @@ Items are grouped into Drawers & Mounts (1xxx), Printers (2xxx), Payment Termina
 - **Incoming** watches additions arrive live (refreshes every 4 seconds) and shows which vans have something waiting. **Update completed** logs them as loaded and clears the list.
 - **Update all vans & print summary** confirms every waiting van at once and opens a printable Van Load Summary of exactly what was confirmed.
 - **Locations:** drag vans between Agoura Hills, Nor Cal and San Diego.
-- **Items:** add or remove catalog items. Two items can share an inventory code after a warning prompt; shared codes show in yellow on the item lists (Load Van, Incoming, Items) so they can be double-checked.
+- **Items:** add, edit (name, number, category) or remove catalog items. Load history stays with an item when it is edited. Two items can share an inventory code after a warning prompt; shared codes show in yellow on the item lists (Load Van, Incoming, Items) so they can be double-checked.
 - **Reports:** view what was loaded into each van over a date range, and export it as CSV.
 
 ## How the numbers work

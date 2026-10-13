@@ -104,8 +104,10 @@ export function EmptyState({ children }) {
   return <p className="text-center text-dim py-10 text-sm">{children}</p>;
 }
 
-// Multi-select category filter buttons. `selected` is a Set of category keys.
-export function CategoryFilters({ categories, selected, onChange }) {
+// Multi-select category filter buttons. `selected` is a Set of category keys,
+// `counts` maps category key -> number of items, `shown` is how many items the
+// list is currently showing.
+export function CategoryFilters({ categories, selected, onChange, counts = {}, shown }) {
   function toggle(key) {
     const next = new Set(selected);
     if (next.has(key)) next.delete(key);
@@ -113,17 +115,42 @@ export function CategoryFilters({ categories, selected, onChange }) {
     onChange(next);
   }
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-      {categories.map((c) => (
-        <button
-          key={c.key}
-          onClick={() => toggle(c.key)}
-          aria-pressed={selected.has(c.key)}
-          className={`tile-btn !h-10 !px-2 !text-[12px] ${selected.has(c.key) ? 'is-active' : ''}`}
-        >
-          {c.label}
-        </button>
-      ))}
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {categories.map((c) => (
+          <button
+            key={c.key}
+            onClick={() => toggle(c.key)}
+            aria-pressed={selected.has(c.key)}
+            className={`tile-btn !h-10 !px-2 !text-[12px] ${selected.has(c.key) ? 'is-active' : ''}`}
+          >
+            {c.label}
+            <span className="opacity-60 tabular-nums">· {counts[c.key] || 0}</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-2 text-[11px] text-dim">
+        <span>
+          {shown !== undefined && `Showing ${shown} item${shown === 1 ? '' : 's'}`}
+          {selected.size === 0 && ' · Atypical hidden unless searching'}
+        </span>
+        {selected.size > 0 && (
+          <button onClick={() => onChange(new Set())} className="text-primary font-semibold hover:underline">
+            Clear filters
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+// Small heading that starts each category section in a grouped item list.
+export function CategoryHeading({ label, count }) {
+  return (
+    <li className="pt-3 first:pt-0 pb-1">
+      <p className="section-title">
+        {label} <span className="opacity-60">· {count}</span>
+      </p>
+    </li>
   );
 }

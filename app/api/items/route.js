@@ -85,21 +85,61 @@ export async function POST(req) {
   return NextResponse.json({ ok: true, itemId: newItem.id });
 }
 
-// Only SC can change an item's category (e.g. move an Atypical item into a
-// regular category once it starts going into vans).
+// Only SC can edit an item: name, inventory code and/or category. Any field
+// left out stays as it is. Changing the code to one another item already uses
+// follows the same confirm-first flow as adding (409 `duplicate: true`, then
+// resend with confirmDuplicate). Load history stays attached to the item.
 export async function PATCH(req) {
   const role = await getScRole();
   if (role !== 'sc') {
     return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
   }
 
-  const { itemId, category } = await req.json().catch(() => ({}));
-  if (!itemId || !CATEGORY_KEYS.includes(category)) {
-    return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
+  const { itemId, name, invCode, category, confirmDuplicate } = await req.json().catch(() => ({}));
+  if (!itemId) {
+    return NextResponse.json({ error: 'Missing item id.' }, { status: 400 });
   }
 
   await ensureCategories();
-  await sql`UPDATE items SET category = ${category} WHERE id = ${itemId};`;
+  const [current] = await sql`SELECT id, name, inv_code, category FROM items WHERE id = ${itemId};`;
+  if (!current) {
+    return NextResponse.json({ error: 'That item no longer exists.' }, { status: 404 });
+  }
+
+  const nextName = name === undefined ? current.name : String(name).trim();
+  const nextCode = invCode === undefined ? current.inv_code : Number(invCode);
+  const nextCategory = category === undefined ? current.category : category;
+
+  if (!nextName) {
+    return NextResponse.json({ error: 'Item name is required.' }, { status: 400 });
+  }
+  if (!Number.isInteger(nextCode) || nextCode <= 0) {
+    return NextResponse.json({ error: 'Inventory code must be a positive whole number.' }, { status: 400 });
+  }
+  if (!CATEGORY_KEYS.includes(nextCategory)) {
+    return NextResponse.json({ error: 'Unknown category.' }, { status: 400 });
+  }
+
+  const others = await sql`
+    SELECT id, name FROM items WHERE inv_code = ${nextCode} AND id != ${itemId} ORDER BY name;
+  `;
+  if (others.some((r) => r.name.trim().toLowerCase() === nextName.toLowerCase())) {
+    return NextResponse.json({ error: `"${nextName}" already exists with code #${nextCode}.` }, { status: 409 });
+  }
+  if (nextCode !== current.inv_code && others.length > 0 && !confirmDuplicate) {
+    return NextResponse.json(
+      { duplicate: true, code: nextCode, existingNames: others.map((r) => r.name) },
+      { status: 409 }
+    );
+  }
+  if (others.length > 0) {
+    await sql`ALTER TABLE items DROP CONSTRAINT IF EXISTS items_inv_code_key;`;
+  }
+
+  await sql`
+    UPDATE items SET name = ${nextName}, inv_code = ${nextCode}, category = ${nextCategory}
+    WHERE id = ${itemId};
+  `;
   return NextResponse.json({ ok: true });
 }
 

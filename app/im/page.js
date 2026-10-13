@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Fragment, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopBar, LogoutButton } from '../../components/TopBar';
 import { AuditButtons } from '../../components/AuditButtons';
@@ -10,11 +10,12 @@ import {
   PlusIcon,
   CodeTag,
   CategoryFilters,
+  CategoryHeading,
   DateRange,
   EmptyState,
   useDefaultRange,
 } from '../../components/ui';
-import { CATEGORIES, filterItems } from '../../lib/categories';
+import { CATEGORIES, filterItems, groupByCategory, countByCategory } from '../../lib/categories';
 
 const TABS = [
   { key: 'load', label: 'Load Van' },
@@ -147,6 +148,8 @@ function LoadTab({ vanId }) {
     () => filterItems(items, { selected, query, keep: (it) => (adds[it.itemId] || 0) > 0 || it.pending > 0 }),
     [items, selected, query, adds]
   );
+  const groups = useMemo(() => groupByCategory(filteredItems), [filteredItems]);
+  const counts = useMemo(() => countByCategory(items), [items]);
 
   const lineCount = Object.values(adds).filter((q) => q > 0).length;
   const unitCount = Object.values(adds).reduce((s, q) => s + q, 0);
@@ -165,46 +168,57 @@ function LoadTab({ vanId }) {
         className="input mb-3"
       />
       <div className="mb-4">
-        <CategoryFilters categories={CATEGORIES} selected={selected} onChange={setSelected} />
+        <CategoryFilters
+          categories={CATEGORIES}
+          selected={selected}
+          onChange={setSelected}
+          counts={counts}
+          shown={filteredItems.length}
+        />
       </div>
 
       {loading ? (
         <EmptyState>Loading...</EmptyState>
       ) : (
         <ul className="space-y-2">
-          {filteredItems.map((it) => {
-            const qty = adds[it.itemId] || 0;
-            return (
-              <li
-                key={it.itemId}
-                className={`tile px-3 py-2.5 flex items-center gap-3 ${qty > 0 ? '!border-primary/50' : ''}`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white leading-snug">{it.name}</p>
-                  <p className="text-[11px] text-dim">
-                    <CodeTag code={it.invCode} dup={it.dupCode} />
-                    {it.pending > 0 && (
-                      <span className="ml-2 text-primary font-semibold">{it.pending} awaiting confirmation</span>
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span
-                    className={`w-8 text-center text-lg font-bold tabular-nums ${qty > 0 ? 'text-primary' : 'text-dim'}`}
+          {groups.map((g) => (
+            <Fragment key={g.key}>
+              <CategoryHeading label={g.label} count={g.items.length} />
+              {g.items.map((it) => {
+                const qty = adds[it.itemId] || 0;
+                return (
+                  <li
+                    key={it.itemId}
+                    className={`tile px-3 py-2.5 flex items-center gap-3 ${qty > 0 ? '!border-primary/50' : ''}`}
                   >
-                    {qty > 0 ? `+${qty}` : '0'}
-                  </span>
-                  <button
-                    aria-label={`Add one ${it.name}`}
-                    onClick={() => change(it.itemId, 1)}
-                    className="tile-btn !h-9 !w-9 !p-0"
-                  >
-                    <PlusIcon />
-                  </button>
-                </div>
-              </li>
-            );
-          })}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white leading-snug">{it.name}</p>
+                      <p className="text-[11px] text-dim">
+                        <CodeTag code={it.invCode} dup={it.dupCode} />
+                        {it.pending > 0 && (
+                          <span className="ml-2 text-primary font-semibold">{it.pending} awaiting confirmation</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className={`w-8 text-center text-lg font-bold tabular-nums ${qty > 0 ? 'text-primary' : 'text-dim'}`}
+                      >
+                        {qty > 0 ? `+${qty}` : '0'}
+                      </span>
+                      <button
+                        aria-label={`Add one ${it.name}`}
+                        onClick={() => change(it.itemId, 1)}
+                        className="tile-btn !h-9 !w-9 !p-0"
+                      >
+                        <PlusIcon />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </Fragment>
+          ))}
           {filteredItems.length === 0 && <EmptyState>No items match.</EmptyState>}
         </ul>
       )}

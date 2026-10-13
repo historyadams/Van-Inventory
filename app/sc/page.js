@@ -1,11 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Fragment, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopBar, SyncStatus, LogoutButton } from '../../components/TopBar';
 import { AuditButtons } from '../../components/AuditButtons';
-import { Tabs, Toast, DateRange, EmptyState, useDefaultRange, CodeTag, CategoryFilters } from '../../components/ui';
-import { CATEGORIES, categoryLabel, filterItems, suggestCategory } from '../../lib/categories';
+import { Tabs, Toast, DateRange, EmptyState, useDefaultRange, CodeTag, CategoryFilters, CategoryHeading } from '../../components/ui';
+import {
+  CATEGORIES,
+  categoryLabel,
+  filterItems,
+  suggestCategory,
+  groupByCategory,
+  countByCategory,
+} from '../../lib/categories';
 
 const LOCATIONS = [
   { prefix: 'AH', name: 'Agoura Hills' },
@@ -352,7 +359,9 @@ function ItemsTab() {
   const [toast, setToast] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [dupPrompt, setDupPrompt] = useState(null); // { code, existingNames }
+  const [editTarget, setEditTarget] = useState(null);
+  // { code, existingNames, onConfirm } - shared by add and edit
+  const [dupPrompt, setDupPrompt] = useState(null);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -395,7 +404,7 @@ function ItemsTab() {
       setCategory('');
       loadItems();
     } else if (data.duplicate) {
-      setDupPrompt(data);
+      setDupPrompt({ ...data, onConfirm: () => addItem(true) });
     } else {
       setError(data.error || 'Something went wrong. Try again.');
     }
@@ -406,15 +415,29 @@ function ItemsTab() {
     addItem(false);
   }
 
-  async function changeCategory(item, next) {
-    setItems((prev) => prev.map((it) => (it.itemId === item.itemId ? { ...it, category: next } : it)));
+  // Returns an error message for the edit form, or null when handled.
+  async function saveEdit(item, fields, confirmDuplicate) {
+    setSaving(true);
     const res = await fetch('/api/items', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemId: item.itemId, category: next }),
+      body: JSON.stringify({ itemId: item.itemId, ...fields, confirmDuplicate }),
     });
-    showToast(res.ok ? `Moved "${item.name}" to ${categoryLabel(next)}.` : 'Something went wrong. Try again.');
-    if (!res.ok) loadItems();
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    setDupPrompt(null);
+
+    if (res.ok) {
+      setEditTarget(null);
+      showToast(`Saved "${fields.name.trim()}".`);
+      loadItems();
+      return null;
+    }
+    if (data.duplicate) {
+      setDupPrompt({ ...data, onConfirm: () => saveEdit(item, fields, true) });
+      return null;
+    }
+    return data.error || 'Something went wrong. Try again.';
   }
 
   async function handleDeleteConfirmed() {
@@ -432,12 +455,14 @@ function ItemsTab() {
   }
 
   const filteredItems = useMemo(() => filterItems(items, { selected, query }), [items, selected, query]);
+  const groups = useMemo(() => groupByCategory(filteredItems), [filteredItems]);
+  const counts = useMemo(() => countByCategory(items), [items]);
 
   return (
     <>
       <p className="text-sm text-muted mb-4 leading-relaxed">
-        Add a new item so it can be loaded into any van, change an item&apos;s category, or remove one that&apos;s no
-        longer stocked.
+        Add a new item so it can be loaded into any van, edit an item&apos;s name, number or category, or remove one
+        that&apos;s no longer stocked.
       </p>
 
       <form onSubmit={handleAdd} className="tile p-4 mb-5 space-y-3">
@@ -462,13 +487,7 @@ function ItemsTab() {
         </div>
         <label className="block text-xs text-muted">
           Category{category ? '' : ' (picked from the item number - change if needed)'}
-          <select value={effectiveCategory} onChange={(e) => setCategory(e.target.value)} className="input mt-1">
-            {CATEGORIES.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <CategorySelect value={effectiveCategory} onChange={setCategory} />
         </label>
         {error && <p className="text-xs text-primary">{error}</p>}
         <button type="submit" disabled={saving} className="btn-primary">
@@ -484,47 +503,60 @@ function ItemsTab() {
         className="input mb-3"
       />
       <div className="mb-4">
-        <CategoryFilters categories={CATEGORIES} selected={selected} onChange={setSelected} />
+        <CategoryFilters
+          categories={CATEGORIES}
+          selected={selected}
+          onChange={setSelected}
+          counts={counts}
+          shown={filteredItems.length}
+        />
       </div>
 
       {loading ? (
         <EmptyState>Loading...</EmptyState>
       ) : (
         <ul className="space-y-2">
-          {filteredItems.map((it) => (
-            <li key={it.itemId} className="tile px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-white leading-snug">{it.name}</p>
-                <p className="text-[11px] text-dim">
-                  <CodeTag code={it.invCode} dup={it.dupCode} />
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  value={it.category || 'atypical'}
-                  onChange={(e) => changeCategory(it, e.target.value)}
-                  aria-label={`Category for ${it.name}`}
-                  className="input !py-1.5 !text-xs !w-auto"
-                >
-                  {CATEGORIES.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setDeleteTarget(it)}
-                  className="text-xs font-semibold text-primary border border-primary/40 rounded-full px-3 py-1.5 hover:bg-primary/10 transition"
-                >
-                  Remove
-                </button>
-              </div>
-            </li>
+          {groups.map((g) => (
+            <Fragment key={g.key}>
+              <CategoryHeading label={g.label} count={g.items.length} />
+              {g.items.map((it) => (
+                <li key={it.itemId} className="tile px-3 py-2.5 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white leading-snug">{it.name}</p>
+                    <p className="text-[11px] text-dim">
+                      <CodeTag code={it.invCode} dup={it.dupCode} />
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => setEditTarget(it)}
+                      className="text-xs font-semibold text-muted border border-white/15 rounded-full px-3 py-1.5 hover:text-white hover:border-white/30 transition"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget(it)}
+                      className="text-xs font-semibold text-primary border border-primary/40 rounded-full px-3 py-1.5 hover:bg-primary/10 transition"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </Fragment>
           ))}
           {filteredItems.length === 0 && <EmptyState>No items match.</EmptyState>}
         </ul>
       )}
 
+      {editTarget && (
+        <EditItemModal
+          item={editTarget}
+          saving={saving}
+          onCancel={() => setEditTarget(null)}
+          onSave={(fields) => saveEdit(editTarget, fields, false)}
+        />
+      )}
       {deleteTarget && (
         <ConfirmModal
           danger
@@ -542,14 +574,76 @@ function ItemsTab() {
           body={`#${dupPrompt.code} is already used by ${dupPrompt.existingNames
             .map((n) => `"${n}"`)
             .join(', ')}. You are about to create a duplicate item number. Do you wish to continue? Shared numbers show in yellow.`}
-          confirmLabel={saving ? 'Adding...' : 'Yes, continue'}
+          confirmLabel={saving ? 'Saving...' : 'Yes, continue'}
           loading={saving}
           onCancel={() => setDupPrompt(null)}
-          onConfirm={() => addItem(true)}
+          onConfirm={dupPrompt.onConfirm}
         />
       )}
       <Toast message={toast} />
     </>
+  );
+}
+
+function CategorySelect({ value, onChange }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input mt-1">
+      {CATEGORIES.map((c) => (
+        <option key={c.key} value={c.key}>
+          {c.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function EditItemModal({ item, saving, onCancel, onSave }) {
+  const [name, setName] = useState(item.name);
+  const [invCode, setInvCode] = useState(String(item.invCode));
+  const [category, setCategory] = useState(item.category || 'atypical');
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    const message = await onSave({ name, invCode, category });
+    if (message) setError(message);
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form onSubmit={handleSubmit} onClick={(e) => e.stopPropagation()} className="card max-w-sm w-full p-6 space-y-3">
+        <h2 className="text-lg font-bold text-white">Edit item</h2>
+        <label className="block text-xs text-muted">
+          Name
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className="input mt-1" />
+        </label>
+        <label className="block text-xs text-muted">
+          Inventory code
+          <input
+            type="number"
+            value={invCode}
+            onChange={(e) => setInvCode(e.target.value)}
+            required
+            className="input mt-1"
+          />
+        </label>
+        <label className="block text-xs text-muted">
+          Category
+          <CategorySelect value={category} onChange={setCategory} />
+        </label>
+        {error && <p className="text-xs text-primary">{error}</p>}
+        <p className="text-[11px] text-dim">Load history stays with the item.</p>
+        <div className="flex gap-3 pt-1">
+          <button type="button" onClick={onCancel} className="btn-ghost flex-1">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className="btn-primary flex-1">
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
