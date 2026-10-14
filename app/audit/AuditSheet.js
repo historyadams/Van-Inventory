@@ -9,7 +9,7 @@ export function AuditSheet({ van, items: allItems, today, pageBreakAfter }) {
 
   return (
     <div
-      className={`bg-white text-black rounded-[18px] p-8 print:rounded-none print:p-0 ${
+      className={`bg-white text-black rounded-[18px] p-8 print:rounded-none print-sheet ${
         pageBreakAfter ? 'print:break-after-page' : ''
       }`}
     >

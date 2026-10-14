@@ -8,7 +8,7 @@ export function AuditFrame({ from, printLabel, children }) {
       <style>{`
         @page {
           size: letter portrait;
-          margin: 0.4in;
+          margin: 0;
         }
       `}</style>
       <div className="print:hidden">

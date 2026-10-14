@@ -50,7 +50,7 @@ function SummarySheet({ completedAt, vans }) {
   const when = completedAt ? new Date(completedAt).toLocaleString() : '-';
 
   return (
-    <div className="bg-white text-black rounded-[18px] p-8 print:rounded-none print:p-0">
+    <div className="bg-white text-black rounded-[18px] p-8 print:rounded-none print-sheet">
       <div
         className="flex items-center justify-between rounded-[10px] px-4 py-2.5 mb-4"
         style={{ background: '#0A0A0B', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}

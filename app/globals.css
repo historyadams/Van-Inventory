@@ -272,10 +272,19 @@ input[type='date']::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
 }
 
-/* Audit sheets print on plain white paper */
+/* Audit sheets and summaries print on plain white paper. The page itself has
+   no margin (@page margin: 0 in AuditFrame) and each sheet carries its own
+   0.5in padding, so the result is the same whatever the browser's Margins
+   setting is, and the browser's URL/date header and footer have no room to
+   print. "clone" repeats the padding on every page a long sheet spills onto. */
 @media print {
   body {
     background: white !important;
     color: black;
+  }
+  .print-sheet {
+    padding: 0.5in !important;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 }
